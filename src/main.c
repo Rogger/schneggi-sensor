@@ -1,9 +1,11 @@
 /**
  * TODO
- * Battery optimizatoin
- * 	Only measure sensor when zigbee connected
- * 	Turn off serial, Remove print
- *
+ * Battery optimization
+ *  Only measure sensors when ZigBee is connected
+ * 	Long Poll https://developer.nordicsemi.com/nRF_Connect_SDK/doc/zboss/3.11.2.1/zigbee_prog_principles.html#zigbee_power_optimization
+ *  Don't send values if they did not change
+ * Fix
+ *  Identify LED stops on
  */
 
 #include <zephyr/types.h>
@@ -225,14 +227,14 @@ void init_adc()
 	{
 		if (!adc_is_ready_dt(&adc_channels[i]))
 		{
-			printk("ADC controller device %s not ready\n", adc_channels[i].dev->name);
+			LOG_ERR("ADC controller device %s not ready", adc_channels[i].dev->name);
 			return;
 		}
 
 		err = adc_channel_setup_dt(&adc_channels[i]);
 		if (err < 0)
 		{
-			printk("Could not setup channel #%d (%d)\n", i, err);
+			LOG_ERR("Could not setup channel #%d (%d)", i, err);
 			return;
 		}
 	}
@@ -439,12 +441,9 @@ void update_sensor_values()
 	if (st == 0)
 	{
 
-		LOG_INF("%.2f degC", sensor_value_to_double(&temp));
-
 		measured_temperature = sensor_value_to_double(&temp);
-
 		temperature_attribute = (int16_t)(measured_temperature * 100);
-		LOG_INF("Temp: %d", temperature_attribute);
+		LOG_INF("Temperature: %.2f", measured_temperature);
 
 		zb_zcl_status_t status = zb_zcl_set_attr_val(
 			SCHNEGGI_ENDPOINT,
@@ -461,7 +460,7 @@ void update_sensor_values()
 	}
 	else
 	{
-		LOG_ERR("Failed to read temp sensor: %d", st);
+		LOG_ERR("Failed to read temperature sensor: %d", st);
 		return;
 	}
 
@@ -469,12 +468,10 @@ void update_sensor_values()
 
 	if (st == 0)
 	{
-		LOG_INF("%0.2f%% RH", sensor_value_to_double(&hum));
 
 		measured_humidity = sensor_value_to_double(&hum);
-
 		humidity_attribute = (int16_t)(measured_humidity * 100);
-		LOG_INF("Humidity: %d", humidity_attribute);
+		LOG_INF("Humidity: %.2f", measured_humidity);
 
 		zb_zcl_status_t status = zb_zcl_set_attr_val(
 			SCHNEGGI_ENDPOINT,
@@ -578,7 +575,7 @@ void update_battery()
 {
 	int err;
 
-	LOG_INF("Enable battery measurement");
+	// Enable battery measurement
 	gpio_pin_set_dt(&battery_monitor_enable, 1);
 	k_sleep(K_MSEC(1));
 
@@ -586,7 +583,7 @@ void update_battery()
 	{
 		int32_t val_mv;
 
-		LOG_INF("%s, channel %d: ",
+		LOG_DBG("%s, channel %d: ",
 				adc_channels[i].dev->name,
 				adc_channels[i].channel_id);
 
@@ -595,7 +592,7 @@ void update_battery()
 		err = adc_read(adc_channels[i].dev, &sequence);
 		if (err < 0)
 		{
-			LOG_INF("Could not read (%d)\n", err);
+			LOG_ERR("Could not read (%d)", err);
 			continue;
 		}
 
@@ -612,17 +609,16 @@ void update_battery()
 		{
 			val_mv = (int32_t)buf;
 		}
-		printk("%" PRId32, val_mv);
+
 		err = adc_raw_to_millivolts_dt(&adc_channels[i],
 									   &val_mv);
 		/* conversion to mV may not be supported, skip if not */
 		if (err < 0)
 		{
-			printk(" (value in mV not available)\n");
+			LOG_ERR("(value in mV not available)");
 		}
 		else
 		{
-			printk(" = %" PRId32 " mV\n", val_mv);
 
 			int32_t battery_voltage_mv = val_mv * (1500000 + 180000) / 180000;
 
@@ -651,7 +647,7 @@ void update_battery()
 			}
 		}
 	}
-	LOG_INF("Disable battery measurement\n");
+	// Disable battery measurement
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
 
@@ -665,8 +661,17 @@ int main(void)
 
 	// register_factory_reset_button(FACTORY_RESET_BUTTON);
 
+	/* Power off unused sections of RAM to lower device power consumption. */
+	if (IS_ENABLED(CONFIG_RAM_POWER_DOWN_LIBRARY))
+	{
+		power_down_unused_ram();
+	}
+
 	// RX on when Idle and power_source are required for the ZigBee capability AC mains = False
 	zb_set_rx_on_when_idle(ZB_FALSE);
+
+	// Turn off radio when sleeping https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/protocols/zigbee/configuring.html#sleepy-end-device-behavior
+	zigbee_configure_sleepy_behavior(true);
 
 	ZB_AF_REGISTER_DEVICE_CTX(&device_ctx);
 
@@ -687,7 +692,7 @@ int main(void)
 	while (1)
 	{
 
-		LOG_INF("Loop %d start..", cycles);
+		LOG_INF("Loop");
 		update_sensor_values();
 		LOG_DBG("%d", cycles % BATTERY_SLEEP_CYCLES);
 		if (cycles % BATTERY_SLEEP_CYCLES == 0)
