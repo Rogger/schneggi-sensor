@@ -1,0 +1,97 @@
+/ {
+
+	zephyr,user {
+		io-channels = <&adc 0>;
+	};
+
+	vbatt {
+		compatible = "voltage-divider";
+		io-channels = <&adc 0>;
+		output-ohms = <180000>;
+		full-ohms = <(1500000 + 180000)>;
+		power-gpios = <&gpio1 9 0>; //P1.09
+	};
+
+	pwmleds {
+		pwm_led: pwm_led {
+			pwms = <&pwm0 1 PWM_MSEC(20) PWM_POLARITY_INVERTED>;
+		};
+		compatible = "pwm-leds";
+	};
+
+	chosen {
+		ncs,zigbee-timer = &timer2;
+	};
+};
+
+&pwm0 {
+	pinctrl-0 = <&pwm0_default_alt>;
+	pinctrl-1 = <&pwm0_sleep_alt>;
+	pinctrl-names = "default", "sleep";
+	status = "okay";
+};
+
+&timer2 {
+	status = "okay";
+};
+
+&i2c1 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	pinctrl-0 = <&i2c1_default>;
+	pinctrl-1 = <&i2c1_sleep>;
+	pinctrl-names = "default", "sleep";
+	clock-frequency = <100000>;
+	shtcx@70 {
+	   compatible = "sensirion,shtcx";
+	   reg = <0x70>;
+	   chip = "shtc3";
+	   measure-mode = "normal"; // low power mode has reduced accuracy
+	};
+ };
+
+ &adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,input-positive = <NRF_SAADC_AIN3>; // P0.03
+		zephyr,resolution = <12>;
+		zephyr,oversampling = <4>;
+	};
+};
+
+&pinctrl {
+	i2c1_default: i2c1_default {
+	   group1 {
+		  psels = <NRF_PSEL(TWIM_SDA, 0, 30)>,
+			 <NRF_PSEL(TWIM_SCL, 0, 31)>;
+			 bias-pull-up;
+	   };
+	};
+	i2c1_sleep: i2c1_sleep {
+	   group1 {
+		  psels = <NRF_PSEL(TWIM_SDA, 0, 30)>,
+			 <NRF_PSEL(TWIM_SCL, 0, 31)>;
+				  low-power-enable;
+	   };
+	};
+
+	pwm0_default_alt: pwm0_default_alt {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT1, 0, 13)>;
+			nordic,invert;
+		};
+	};
+
+	pwm0_sleep_alt: pwm0_sleep_alt {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT1, 0, 13)>;
+			low-power-enable;
+		};
+	};
+ };
