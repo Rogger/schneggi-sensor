@@ -15,20 +15,19 @@ A low power ZigBee temperature and humidity sensor integrated with HomeAssistant
 ## PCB
 The PCB was designed with KiCad 6 and manufactured/assembled with JLCPCB. All relevant files can be found in the [repo](hardware/E73-2G4M08S1C-52840)
 
-![image](https://github.com/Rogger/schneggi-sensor/assets/371835/be12c999-ec39-4161-95e4-73d42402109f)
+![E73-2G4M08S1C-52840](https://github.com/Rogger/schneggi-sensor/assets/371835/75e2d0dc-5a9e-4166-911b-2f92178287d6)
 
 ## Case
 A 3D printable case was generated with the help of [Ultimate Box Maker](https://github.com/jbebel/Ultimate-Box-Maker).
 
-![image](https://github.com/Rogger/schneggi-sensor/assets/371835/ab5e8014-a209-424d-a499-19e3f091526b)
-![image](https://github.com/Rogger/schneggi-sensor/assets/371835/b7e83cb2-98f3-4bfb-9744-4b7735aa9ba5)
+![Ultimate_Box](https://github.com/Rogger/schneggi-sensor/assets/371835/782dbbfe-b442-4105-b787-0a193e914e4e)
 
 ## HomeAssistant
 Works out of the box
 
-![image](https://github.com/Rogger/schneggi-sensor/assets/371835/f15c5fb3-5d0a-4664-84ad-d415db4e80bc)
+![Screenshot from 2023-11-21 21-22-59](https://github.com/Rogger/schneggi-sensor/assets/371835/cefebd48-2896-4cb5-bfa6-d6ba029c3226)
 
-![image](https://github.com/Rogger/schneggi-sensor/assets/371835/25a41448-d139-476f-bedd-f4ae8debbe8c)
+![Screenshot from 2023-11-21 21-27-04](https://github.com/Rogger/schneggi-sensor/assets/371835/61f52585-6c13-4973-a659-87bb132f250d)
 
 ## How to build?
 - Install VSCode + nRF plugins.
