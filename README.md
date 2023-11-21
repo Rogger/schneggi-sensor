@@ -13,7 +13,7 @@ A low power ZigBee temperature and humidity sensor integrated with HomeAssistant
 - Tested with [Home Assistant](https://www.home-assistant.io/) and [SkyConnect](https://www.home-assistant.io/skyconnect/)
 
 ## PCB
-The PCB was designed with KiCad 6 and manufactured/assembled with JLCPCB. All relevant files can be found in the [repo](hardware/E73-2G4M08S1C-52840/jlcpcb)
+The PCB was designed with KiCad 6 and manufactured/assembled with JLCPCB. All relevant files can be found in the [repo](hardware/E73-2G4M08S1C-52840)
 
 ![image](https://github.com/Rogger/schneggi-sensor/assets/371835/be12c999-ec39-4161-95e4-73d42402109f)
 
