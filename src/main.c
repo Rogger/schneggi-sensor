@@ -32,7 +32,7 @@
 
 // Sleep
 #define SLEEP_INTERVAL_SECONDS 5 * 60			// HA minimum = 30s
-#define BATTERY_REPORT_INTERVAL_SECONDS 30 * 60 // HA minimum = 3600s
+#define BATTERY_REPORT_INTERVAL_SECONDS 2 * 60 * 60 // HA minimum = 3600s
 #define BATTERY_SLEEP_CYCLES BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS
 
 // ZigBee
@@ -651,6 +651,25 @@ void update_battery()
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
 
+static void sensor_loop(zb_bufid_t bufid){
+	static uint16_t cycles = 0;
+
+	LOG_INF("Loop");
+	update_sensor_values();
+	LOG_DBG("%d", cycles % BATTERY_SLEEP_CYCLES);
+	if (cycles % BATTERY_SLEEP_CYCLES == 0)
+	{
+		update_battery();
+		cycles = 0;
+	}
+	cycles++;
+	LOG_INF("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
+	
+	ZB_SCHEDULE_APP_ALARM(sensor_loop, bufid, 
+        ZB_MILLISECONDS_TO_BEACON_INTERVAL(
+          SLEEP_INTERVAL_SECONDS * 1000));
+}
+
 int main(void)
 {
 	LOG_INF("Schneggi sensor starting...");
@@ -666,6 +685,9 @@ int main(void)
 	{
 		power_down_unused_ram();
 	}
+
+	zb_set_ed_timeout(ED_AGING_TIMEOUT_64MIN);
+  	zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
 
 	// RX on when Idle and power_source are required for the ZigBee capability AC mains = False
 	zb_set_rx_on_when_idle(ZB_FALSE);
@@ -687,21 +709,6 @@ int main(void)
 
 	LOG_INF("Schneggi sensor started");
 
-	int cycles = 0;
-
-	while (1)
-	{
-
-		LOG_INF("Loop");
-		update_sensor_values();
-		LOG_DBG("%d", cycles % BATTERY_SLEEP_CYCLES);
-		if (cycles % BATTERY_SLEEP_CYCLES == 0)
-		{
-			update_battery();
-			cycles = 0;
-		}
-		cycles++;
-		LOG_INF("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
-		k_sleep(K_SECONDS(SLEEP_INTERVAL_SECONDS));
-	}
+	ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM, 
+    ZB_MILLISECONDS_TO_BEACON_INTERVAL(0));
 }
