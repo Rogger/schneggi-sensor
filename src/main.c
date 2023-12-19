@@ -1,9 +1,5 @@
 /**
  * TODO
- * Battery optimization
- *  Only measure sensors when ZigBee is connected
- * 	Long Poll https://developer.nordicsemi.com/nRF_Connect_SDK/doc/zboss/3.11.2.1/zigbee_prog_principles.html#zigbee_power_optimization
- *  Don't send values if they did not change
  * Fix
  *  Identify LED stops on
  */
@@ -27,12 +23,13 @@
 #include <zigbee/zigbee_error_handler.h>
 #include <zigbee/zigbee_zcl_scenes.h>
 #include <zb_nrf_platform.h>
+#include "nrf_802154.h"
 #include "zb_dimmable_light.h"
 #include "zb_zcl_power_config.h"
 
 // Sleep
-#define SLEEP_INTERVAL_SECONDS 5 * 60			// HA minimum = 30s
-#define BATTERY_REPORT_INTERVAL_SECONDS 2 * 60 * 60 // HA minimum = 3600s
+#define SLEEP_INTERVAL_SECONDS 1 * 60		   // HA minimum = 30s
+#define BATTERY_REPORT_INTERVAL_SECONDS 2 * 60 // HA minimum = 3600s
 #define BATTERY_SLEEP_CYCLES BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS
 
 // ZigBee
@@ -452,7 +449,7 @@ void update_sensor_values()
 			ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
 			(zb_uint8_t *)&temperature_attribute,
 			ZB_FALSE);
-		if (status)
+		if (status != ZB_ZCL_STATUS_SUCCESS)
 		{
 			LOG_ERR("Failed to set ZCL attribute: %d", status);
 			return;
@@ -680,6 +677,10 @@ int main(void)
 
 	// register_factory_reset_button(FACTORY_RESET_BUTTON);
 
+	
+	LOG_INF("802.15.4 transmit power: %d dBm", nrf_802154_tx_power_get());
+	//nrf_802154_tx_power_set(8); //8 dBm (max)
+
 	/* Power off unused sections of RAM to lower device power consumption. */
 	if (IS_ENABLED(CONFIG_RAM_POWER_DOWN_LIBRARY))
 	{
@@ -687,7 +688,8 @@ int main(void)
 	}
 
 	zb_set_ed_timeout(ED_AGING_TIMEOUT_64MIN);
-  	zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
+	zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
+	zb_set_keepalive_mode(MAC_DATA_POLL_KEEPALIVE);
 
 	// RX on when Idle and power_source are required for the ZigBee capability AC mains = False
 	zb_set_rx_on_when_idle(ZB_FALSE);
