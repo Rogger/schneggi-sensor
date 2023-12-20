@@ -2,6 +2,7 @@
  * TODO
  * Fix
  *  Identify LED stops on
+ *  Fast polling instead of slow poll
  */
 
 #include <zephyr/types.h>
@@ -21,15 +22,14 @@
 #include <zb_mem_config_med.h>
 #include <zigbee/zigbee_app_utils.h>
 #include <zigbee/zigbee_error_handler.h>
-#include <zigbee/zigbee_zcl_scenes.h>
 #include <zb_nrf_platform.h>
 #include "nrf_802154.h"
 #include "zb_dimmable_light.h"
 #include "zb_zcl_power_config.h"
 
 // Sleep
-#define SLEEP_INTERVAL_SECONDS 1 * 60		   // HA minimum = 30s
-#define BATTERY_REPORT_INTERVAL_SECONDS 2 * 60 // HA minimum = 3600s
+#define SLEEP_INTERVAL_SECONDS 5 * 60			// HA minimum = 30s
+#define BATTERY_REPORT_INTERVAL_SECONDS 15 * 60 // HA minimum = 3600s
 #define BATTERY_SLEEP_CYCLES BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS
 
 // ZigBee
@@ -171,7 +171,7 @@ static const struct pwm_dt_spec led_pwm = PWM_DT_SPEC_GET(PWM_LED_NODE);
 
 #define LED_PWM_PERIOD_US (USEC_PER_SEC / 100U) // Led PWM period, calculated for 100 Hz signal - in microseconds.
 
-LOG_MODULE_REGISTER(app, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
 const struct device *shtc3;
 
@@ -399,28 +399,45 @@ static void identify_cb(zb_bufid_t bufid)
 	}
 }
 
-/**@brief Zigbee stack event handler.
- *
- * @param[in]   bufid   Reference to the Zigbee stack buffer
- *                      used to pass signal.
- */
-void zboss_signal_handler(zb_bufid_t bufid)
+static bool joining_signal_received = false;
+static bool stack_initialised = false;
+
+static void led_flashing_cb(struct k_timer *timer)
 {
-	/* Update network status LED. */
-	// TODO zigbee_led_status_update(bufid, ZIGBEE_NETWORK_STATE_LED);
+	static int blink_status;
 
-	/* No application-specific behavior is required.
-	 * Call default signal handler.
-	 */
-	ZB_ERROR_CHECK(zigbee_default_signal_handler(bufid));
+	led_set_brightness(((++blink_status) % 2) ? (255U) : (0U));
+}
 
-	/* All callbacks should either reuse or free passed buffers.
-	 * If bufid == 0, the buffer is invalid (not passed).
-	 */
-	if (bufid)
-	{
-		zb_buf_free(bufid);
-	}
+K_TIMER_DEFINE(led_flashing_timer, led_flashing_cb, /*stop_fn=*/NULL);
+
+void callback_work_handler(struct k_work *work)
+{
+	LOG_INF("Running restart callback_work_handler.");
+	// prst_debug_counters_increment("steering_watchdog_restart");
+	//  If the device is not commissioned, the rejoin procedure is started.
+	user_input_indicate();
+}
+
+K_WORK_DEFINE(callback_work, callback_work_handler);
+
+// Runs in an ISR context. We offload the actual work to a workqueue.
+static void restart_network_steering_cb(struct k_timer *timer)
+{
+	LOG_INF("Triggered restart_network_steering_cb. Offloading work.");
+	k_work_submit(&callback_work);
+}
+
+K_TIMER_DEFINE(restart_timer, restart_network_steering_cb, NULL);
+
+void prst_restart_watchdog_stop()
+{
+	k_timer_stop(&restart_timer);
+}
+
+void prst_restart_watchdog_start()
+{
+	k_timer_start(&restart_timer, K_SECONDS(3600), K_MSEC(0));
 }
 
 void update_sensor_values()
@@ -621,6 +638,12 @@ void update_battery()
 
 			if (i == 0)
 			{
+				if (battery_voltage_mv < 0)
+				{
+					LOG_DBG("Not reporting negative voltage");
+					return;
+				}
+
 				uint8_t battery_attribute = (uint8_t)(battery_voltage_mv / 100);
 				LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x", battery_voltage_mv, battery_attribute);
 				zb_zcl_status_t status_battery_voltage = zb_zcl_set_attr_val(
@@ -630,6 +653,11 @@ void update_battery()
 					ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID,
 					(zb_uint8_t *)&battery_attribute,
 					ZB_FALSE);
+				if (status_battery_voltage)
+				{
+					LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
+					return;
+				}
 
 				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve) / 100;
 				uint8_t battery_percentage_attribute = (uint8_t)(battery_percentage * 2); // 3.3.2.2.3.2
@@ -641,6 +669,11 @@ void update_battery()
 					ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID,
 					(zb_uint8_t *)&battery_percentage_attribute,
 					ZB_FALSE);
+				if (status_battery_percentage)
+				{
+					LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
+					return;
+				}
 			}
 		}
 	}
@@ -648,10 +681,11 @@ void update_battery()
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
 
-static void sensor_loop(zb_bufid_t bufid){
+static void sensor_loop(zb_bufid_t bufid)
+{
 	static uint16_t cycles = 0;
 
-	LOG_INF("Loop");
+	LOG_INF("--Loop--");
 	update_sensor_values();
 	LOG_DBG("%d", cycles % BATTERY_SLEEP_CYCLES);
 	if (cycles % BATTERY_SLEEP_CYCLES == 0)
@@ -661,10 +695,98 @@ static void sensor_loop(zb_bufid_t bufid){
 	}
 	cycles++;
 	LOG_INF("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
-	
-	ZB_SCHEDULE_APP_ALARM(sensor_loop, bufid, 
-        ZB_MILLISECONDS_TO_BEACON_INTERVAL(
-          SLEEP_INTERVAL_SECONDS * 1000));
+
+	ZB_SCHEDULE_APP_ALARM(sensor_loop, bufid,
+						  ZB_MILLISECONDS_TO_BEACON_INTERVAL(
+							  SLEEP_INTERVAL_SECONDS * 1000));
+}
+
+void zboss_signal_handler(zb_bufid_t bufid)
+{
+	// See zigbee_default_signal_handler() for all available signals.
+	zb_zdo_app_signal_hdr_t *sig_hndler = NULL;
+	zb_zdo_app_signal_type_t sig = zb_get_app_signal(bufid, /*sg_p=*/&sig_hndler);
+	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(bufid);
+	switch (sig)
+	{
+	case ZB_BDB_SIGNAL_STEERING: // New network.
+	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
+	{ // Previously joined network.
+		LOG_DBG("Steering complete. Status: %d", status);
+		if (status == RET_OK)
+		{
+			LOG_DBG("Steering successful. Status: %d", status);
+			k_timer_stop(&led_flashing_timer);
+			led_set_brightness(0U);
+			prst_restart_watchdog_stop();
+			// Update the long polling parent interval - needs to be done after joining.
+			zb_zdo_pim_set_long_poll_interval(ZB_PIM_DEFAULT_LONG_POLL_INTERVAL);
+		}
+		else
+		{
+			LOG_DBG("Steering failed. Status: %d", status);
+			prst_restart_watchdog_start();
+			// Power saving.
+			k_timer_stop(&led_flashing_timer);
+			led_set_brightness(0U);
+		}
+		joining_signal_received = true;
+		break;
+	}
+	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
+		joining_signal_received = true;
+		break;
+	case ZB_ZDO_SIGNAL_LEAVE:
+		if (status == RET_OK)
+		{
+			k_timer_start(&led_flashing_timer, K_NO_WAIT, K_SECONDS(1));
+			zb_zdo_signal_leave_params_t *leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(sig_hndler, zb_zdo_signal_leave_params_t);
+			LOG_DBG("Network left (leave type: %d)", leave_params->leave_type);
+
+			/* Set joining_signal_received to false so broken rejoin procedure can be detected correctly. */
+			if (leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN)
+			{
+				joining_signal_received = false;
+			}
+		}
+		break;
+	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
+	{
+		stack_initialised = true;
+		LOG_DBG("Started zigbee stack and waiting for connection to network.");
+		k_timer_start(&led_flashing_timer, K_NO_WAIT, K_SECONDS(1));
+
+		// Kick off main sensor update task.
+		ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
+							  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
+		__ASSERT_NO_MSG(!prst_watchdog_start());
+		break;
+	}
+	case ZB_NLME_STATUS_INDICATION:
+	{
+		zb_zdo_signal_nlme_status_indication_params_t *nlme_status_ind =
+			ZB_ZDO_SIGNAL_GET_PARAMS(sig_hndler, zb_zdo_signal_nlme_status_indication_params_t);
+		if (nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE)
+		{
+			/* Check for broken rejoin procedure and restart the device to recover.
+			   This implements Nordic's suggested workaround for errata KRKNWK-12017, which effects
+			   the recent nRF Connect SDK (v1.8.0 - v2.3.0 at time of writing).
+			   For details see: https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/known_issues.html?v=v2-3-0
+			 */
+			if (stack_initialised && !joining_signal_received)
+			{
+				zb_reset(0);
+			}
+		}
+		break;
+	}
+	}
+
+	ZB_ERROR_CHECK(zigbee_default_signal_handler(bufid));
+	if (bufid)
+	{
+		zb_buf_free(bufid);
+	}
 }
 
 int main(void)
@@ -677,9 +799,8 @@ int main(void)
 
 	// register_factory_reset_button(FACTORY_RESET_BUTTON);
 
-	
 	LOG_INF("802.15.4 transmit power: %d dBm", nrf_802154_tx_power_get());
-	//nrf_802154_tx_power_set(8); //8 dBm (max)
+	// nrf_802154_tx_power_set(8); //8 dBm (max)
 
 	/* Power off unused sections of RAM to lower device power consumption. */
 	if (IS_ENABLED(CONFIG_RAM_POWER_DOWN_LIBRARY))
@@ -711,6 +832,6 @@ int main(void)
 
 	LOG_INF("Schneggi sensor started");
 
-	ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM, 
-    ZB_MILLISECONDS_TO_BEACON_INTERVAL(0));
+	ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
+						  ZB_MILLISECONDS_TO_BEACON_INTERVAL(0));
 }
