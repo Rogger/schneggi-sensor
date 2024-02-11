@@ -1,14 +1,7 @@
-/**
- * TODO
- * Fix
- *  Identify LED stops on
- */
-
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <soc.h>
-#include <zephyr/drivers/pwm.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/gpio.h>
@@ -27,7 +20,7 @@
 #include "zb_zcl_power_config.h"
 
 // Sleep
-#define SLEEP_INTERVAL_SECONDS 15 * 60			// HA minimum = 30s
+#define SLEEP_INTERVAL_SECONDS 10 * 60			// HA minimum = 30s
 #define BATTERY_REPORT_INTERVAL_SECONDS 1 * 60 * 60 // HA minimum = 3600s
 #define BATTERY_SLEEP_CYCLES BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS
 #define ZB_PARENT_POLL_INTERVAL_SEC 60
@@ -160,20 +153,10 @@ ZBOSS_DECLARE_DEVICE_CTX_1_EP(
 static const struct adc_dt_spec adc_channels[] = {
 	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels, DT_SPEC_AND_COMMA)};
 
-// LED
-#define PWM_LED_NODE DT_NODELABEL(pwm_led)
-
-#if DT_NODE_HAS_STATUS(PWM_LED_NODE, okay)
-static const struct pwm_dt_spec led_pwm = PWM_DT_SPEC_GET(PWM_LED_NODE);
-#else
-#error "Choose supported PWM driver"
-#endif
-
-#define LED_PWM_PERIOD_US (USEC_PER_SEC / 100U) // Led PWM period, calculated for 100 Hz signal - in microseconds.
-
-LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
-
 const struct device *shtc3;
+
+#define LED_NODE DT_ALIAS(led)
+const struct gpio_dt_spec led_spec = GPIO_DT_SPEC_GET(LED_NODE, gpios);
 
 uint16_t buf;
 struct adc_sequence sequence = {
@@ -182,19 +165,7 @@ struct adc_sequence sequence = {
 
 struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
 
-/* Button used to enter the Bulb into the Identify mode. */
-#define IDENTIFY_MODE_BUTTON 1
-
-/* Button to start Factory Reset */
-// #define FACTORY_RESET_BUTTON IDENTIFY_MODE_BUTTON
-
-static void init_pwm_led(void)
-{
-	if (!device_is_ready(led_pwm.dev))
-	{
-		LOG_ERR("Error: PWM device %s is not ready", led_pwm.dev->name);
-	}
-}
+LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
 static void init_shtc3_device(void)
 {
@@ -265,103 +236,6 @@ static void init_clusters_attr(void)
 	dev_ctx.power_config_attr.battery_percentage_remaining = ZB_ZCL_POWER_CONFIG_BATTERY_REMAINING_UNKNOWN;
 	dev_ctx.power_config_attr.battery_size = ZB_ZCL_POWER_CONFIG_BATTERY_SIZE_DEFAULT_VALUE;
 	dev_ctx.power_config_attr.battery_quantity = 1;
-
-	// dev_ctx.power_config_attr.battery_percentage_min_threshold = (uint8_t)(BATTERY_ALARM_MV/100) ;*/
-}
-
-/**@brief Sets brightness of the led
- *
- * @param[in] brightness_level Brightness level, allowed values 0 ... 255,
- *                             0 - turn off, 255 - full brightness.
- */
-static void led_set_brightness(zb_uint8_t brightness_level)
-{
-	uint32_t pulse = brightness_level * LED_PWM_PERIOD_US / 255U;
-
-	if (pwm_set_dt(&led_pwm, PWM_USEC(LED_PWM_PERIOD_US), PWM_USEC(pulse)))
-	{
-		LOG_ERR("Pwm led set fails");
-		return;
-	}
-}
-
-/**@brief Starts identifying the device.
- *
- * @param  bufid  Unused parameter, required by ZBOSS scheduler API.
- */
-static void start_identifying(zb_bufid_t bufid)
-{
-	ZVUNUSED(bufid);
-
-	if (ZB_JOINED())
-	{
-		/* Check if endpoint is in identifying mode,
-		 * if not, put desired endpoint in identifying mode.
-		 */
-		if (dev_ctx.identify_attr.identify_time ==
-			ZB_ZCL_IDENTIFY_IDENTIFY_TIME_DEFAULT_VALUE)
-		{
-
-			zb_ret_t zb_err_code = zb_bdb_finding_binding_target(
-				SCHNEGGI_ENDPOINT);
-
-			if (zb_err_code == RET_OK)
-			{
-				LOG_INF("Enter identify mode");
-			}
-			else if (zb_err_code == RET_INVALID_STATE)
-			{
-				LOG_WRN("RET_INVALID_STATE - Cannot enter identify mode");
-			}
-			else
-			{
-				ZB_ERROR_CHECK(zb_err_code);
-			}
-		}
-		else
-		{
-			LOG_INF("Cancel identify mode");
-			zb_bdb_finding_binding_target_cancel();
-		}
-	}
-	else
-	{
-		LOG_WRN("Device not in a network - cannot enter identify mode");
-	}
-}
-
-/**@brief Callback for button events.
- *
- * @param[in]   button_state  Bitmask containing the state of the buttons.
- * @param[in]   has_changed   Bitmask containing buttons that have changed their state.
- */
-static void button_changed(uint32_t button_state, uint32_t has_changed)
-{
-	if (IDENTIFY_MODE_BUTTON & has_changed)
-	{
-		if (IDENTIFY_MODE_BUTTON & button_state)
-		{
-			/* Button changed its state to pressed */
-		}
-		else
-		{
-			/* Button changed its state to released */
-			if (was_factory_reset_done())
-			{
-				/* The long press was for Factory Reset */
-				LOG_DBG("After Factory Reset - ignore button release");
-			}
-			else
-			{
-				/* Button released before Factory Reset */
-
-				/* Start identification mode */
-				ZB_SCHEDULE_APP_CALLBACK(start_identifying, 0);
-			}
-		}
-	}
-
-	check_factory_reset_button(button_state, has_changed);
 }
 
 /**@brief Function to toggle the identify LED
@@ -370,9 +244,7 @@ static void button_changed(uint32_t button_state, uint32_t has_changed)
  */
 static void toggle_identify_led(zb_bufid_t bufid)
 {
-	static int blink_status;
-
-	led_set_brightness(((++blink_status) % 2) ? (255U) : (0U));
+	gpio_pin_toggle_dt(&led_spec);
 	ZB_SCHEDULE_APP_ALARM(toggle_identify_led, bufid, ZB_MILLISECONDS_TO_BEACON_INTERVAL(100));
 }
 
@@ -387,6 +259,7 @@ static void identify_cb(zb_bufid_t bufid)
 	if (bufid)
 	{
 		LOG_INF("Start identify");
+		gpio_pin_set_dt(&led_spec, 1);
 		/* Schedule a self-scheduling function that will toggle the LED. */
 		ZB_SCHEDULE_APP_CALLBACK(toggle_identify_led, bufid);
 	}
@@ -395,6 +268,7 @@ static void identify_cb(zb_bufid_t bufid)
 		LOG_INF("Stop identify");
 		/* Cancel the toggling function alarm and restore current Zigbee LED state. */
 		zb_err_code = ZB_SCHEDULE_APP_ALARM_CANCEL(toggle_identify_led, ZB_ALARM_ANY_PARAM);
+		gpio_pin_set_dt(&led_spec, 0);
 		ZVUNUSED(zb_err_code);
 	}
 }
@@ -761,11 +635,11 @@ int main(void)
 {
 	LOG_INF("Schneggi sensor starting...");
 
-	// register_factory_reset_button(FACTORY_RESET_BUTTON);
-
 	init_shtc3_device();
 
 	init_adc();
+
+	gpio_pin_configure_dt(&led_spec, GPIO_OUTPUT_INACTIVE);
 
 	/* Power off unused sections of RAM to lower device power consumption. */
 	if (IS_ENABLED(CONFIG_RAM_POWER_DOWN_LIBRARY))
@@ -783,8 +657,8 @@ int main(void)
 	
 	LOG_DBG("ZB sleep threshold: %d ms", zb_get_sleep_threshold());
 	
-	// zb_set_ed_timeout(ED_AGING_TIMEOUT_64MIN);	
-	// zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
+	//zb_set_ed_timeout(ED_AGING_TIMEOUT_64MIN);	
+	//zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
 
 	ZB_AF_REGISTER_DEVICE_CTX(&device_ctx);
 
@@ -793,7 +667,6 @@ int main(void)
 	ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER(SCHNEGGI_ENDPOINT, identify_cb);
 	zigbee_erase_persistent_storage(ZB_FALSE);
 
-	/* Start Zigbee default thread */
 	zigbee_enable();
 
 	LOG_INF("Schneggi sensor started");
