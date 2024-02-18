@@ -1,10 +1,9 @@
 # Schneggi sensor 🐌
-A low power ZigBee temperature and humidity sensor integrated with HomeAssistant.
+A low power ZigBee temperature and humidity sensor integrated with [Home Assistant](https://www.home-assistant.io/).
 
-## Design Goals
 - High accuracy temperature and humidity measurements ([Sensirion SHTC3](https://www.sensirion.com/products/catalog/SHTC3/))
-- Designed for low power consumption and long battery life
-  - Hardware: nRF52840 chip, low-current linear regulator, battery monitor with on/off capability 
+- Low power consumption and long battery life. E.g. a 350mAH li-poly lasts for 2+ years (15uA avg).
+  - Hardware: nRF52840 chip, low-current linear regulator, battery monitor with on/off 
   - Software: Deep sleep
 - Can be powered by
   - Battery with JST connector and 3V to 6,5V (e.g. 350mAh li-poly)
