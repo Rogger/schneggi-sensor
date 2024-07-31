@@ -1,13 +1,13 @@
+#include <soc.h>
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
-#include <soc.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
-#include <dk_buttons_and_leds.h>
 #include <zephyr/settings/settings.h>
+#include <dk_buttons_and_leds.h>
 
 #include <zboss_api.h>
 #include <zboss_api_addons.h>
@@ -17,10 +17,16 @@
 #include <zb_nrf_platform.h>
 #include "nrf_802154.h"
 #include "zb_dimmable_light.h"
-#include "zb_zcl_power_config.h"
+
+#include <zcl/zb_zcl_power_config.h>
+#include <zcl/zb_zcl_temp_measurement_addons.h>
+#include <zcl/zb_zcl_basic_addons.h>
+#include "zcl/zb_zcl_concentration_measurement.h"
+
+
 
 // Sleep
-#define SLEEP_INTERVAL_SECONDS 10 * 60			// HA minimum = 30s
+#define SLEEP_INTERVAL_SECONDS 1 * 60			// HA minimum = 30s
 #define BATTERY_REPORT_INTERVAL_SECONDS 1 * 60 * 60 // HA minimum = 3600s
 #define BATTERY_SLEEP_CYCLES BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS
 #define ZB_PARENT_POLL_INTERVAL_SEC 60
@@ -38,6 +44,14 @@ typedef struct
 	zb_int16_t min_measure_value;
 	zb_int16_t max_measure_value;
 } zb_zcl_rel_humidity_measurement_attr_t;
+
+typedef struct
+{
+	zb_int16_t measure_value;
+	zb_int16_t min_measure_value;
+	zb_int16_t max_measure_value;
+	zb_uint16_t tolerance;
+} zb_zcl_concentration_measurement_attrs_t;
 
 typedef struct
 {
@@ -65,6 +79,7 @@ typedef struct
 	zb_zcl_identify_attrs_t identify_attr;
 	zb_zcl_temp_measurement_attrs_t temp_measure_attrs;
 	zb_zcl_rel_humidity_measurement_attr_t humidity_measure_attrs;
+	zb_zcl_concentration_measurement_attrs_t concentration_measure_attrs;
 	zb_zcl_power_config_attr_t power_config_attr;
 } schneggi_device_ctx_t;
 
@@ -101,6 +116,12 @@ ZB_ZCL_DECLARE_REL_HUMIDITY_MEASUREMENT_ATTRIB_LIST(
 	&dev_ctx.humidity_measure_attrs.min_measure_value,
 	&dev_ctx.humidity_measure_attrs.max_measure_value);
 
+ZB_ZCL_DECLARE_CONCENTRATION_MEASUREMENT_ATTRIB_LIST(concentration_measurement_attr_list,
+						     &dev_ctx.concentration_measure_attrs.measure_value,
+						     &dev_ctx.concentration_measure_attrs.min_measure_value,
+						     &dev_ctx.concentration_measure_attrs.max_measure_value,
+						     &dev_ctx.concentration_measure_attrs.tolerance);
+
 /* Define 'bat_num' as empty in order to declare default battery set attributes. */
 /* According to Table 3-17 of ZCL specification, defining 'bat_num' as 2 or 3 allows */
 /* to declare battery set attributes for BATTERY2 and BATTERY3 */
@@ -130,6 +151,7 @@ ZB_DECLARE_DIMMABLE_LIGHT_CLUSTER_LIST(
 	identify_attr_list,
 	temp_measurement_attr_list,
 	humidity_measurement_attr_list,
+	concentration_measurement_attr_list,
 	power_config_attr_list);
 
 ZB_DECLARE_DIMMABLE_LIGHT_EP(
@@ -165,6 +187,12 @@ struct adc_sequence sequence = {
 
 struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
 
+#if !DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
+#error "No sensirion,scd4x compatible node found in the device tree"
+#endif
+
+static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd4x);
+
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
 static void init_shtc3_device(void)
@@ -185,6 +213,13 @@ static void init_shtc3_device(void)
 	}
 
 	LOG_INF("Found device %s.", shtc3->name);
+}
+
+void air_quality_monitor_init(void)
+{
+	if (scd == NULL || device_is_ready(scd) == false) {
+		LOG_ERR("Failed to initialize SCD4X device");
+	}
 }
 
 void init_adc()
@@ -338,6 +373,42 @@ void update_sensor_values()
 		LOG_ERR("Failed to read humidity sensor: %d", st);
 		return;
 	}
+
+	int err = sensor_sample_fetch(scd);
+	if (err) {
+		LOG_ERR("Failed to fetch sample from SCD4X device");
+	}
+
+	err = 0;
+
+	double measured_co2 = 0.0;
+	float co2_attribute = 0.0;
+
+	struct sensor_value sensor_value;
+	err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
+	measured_co2 = sensor_value_to_double(&sensor_value);
+	if (err) {
+		LOG_ERR("Failed to get sensor co2: %d", err);
+	} else {
+		LOG_INF("CO2 %f", measured_co2);
+
+		/* Convert measured value to attribute value, as specified in ZCL */
+		co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
+		LOG_INF("Attribute CO2:%10f", co2_attribute);
+
+		zb_zcl_status_t status =
+			zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
+					    ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+					    ZB_ZCL_CLUSTER_SERVER_ROLE,
+					    ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
+					    (zb_uint8_t *)&co2_attribute, ZB_FALSE);
+		if (status) {
+			LOG_ERR("Failed to set ZCL attribute: %d", status);
+			err = status;
+		}
+	}
+
+
 }
 
 /** A point in a battery discharge curve sequence.
@@ -521,6 +592,8 @@ static void sensor_loop(zb_bufid_t bufid)
 
 	LOG_INF("--Loop--");
 
+	NRF_WDT->RR[0] = WDT_RR_RR_Reload;  //Reload watchdog register 0
+
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, bufid,
 										 ZB_MILLISECONDS_TO_BEACON_INTERVAL(
 											 SLEEP_INTERVAL_SECONDS * 1000));
@@ -631,11 +704,21 @@ void zboss_signal_handler(zb_bufid_t bufid)
 	}
 }
 
+void wdt_init(void)
+{
+	NRF_WDT->CONFIG = (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos) | ( WDT_CONFIG_SLEEP_Pause << WDT_CONFIG_SLEEP_Pos);   //Configure Watchdog. a) Pause watchdog while the CPU is halted by the debugger.  b) Keep the watchdog running while the CPU is sleeping.
+	NRF_WDT->CRV = 30*32768;             //ca 3 sek. timout
+	NRF_WDT->RREN |= WDT_RREN_RR0_Msk;  //Enable reload register 0
+	NRF_WDT->TASKS_START = 1;           //Start the Watchdog timer
+}
+
 int main(void)
 {
 	LOG_INF("Schneggi sensor starting...");
 
 	init_shtc3_device();
+
+	air_quality_monitor_init();
 
 	init_adc();
 
@@ -671,5 +754,24 @@ int main(void)
 
 	LOG_INF("Schneggi sensor started");
 
+	//wdt_init(); //Initialize watchdog
+
 	return 0;
+
+    /*while (true)
+    {
+			__WFE();
+			__SEV();
+			__WFE();
+    }*/
 }
+
+
+/*
+TODO
+- Use something else than scheduler
+- Integrate SCD4X
+- Report CO2 to HA
+
+
+*/

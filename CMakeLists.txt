@@ -10,10 +10,8 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project("Schneggi Sensor")
 
-# NORDIC SDK APP START
-target_sources(app PRIVATE
-  src/main.c
-)
+FILE(GLOB_RECURSE app_sources ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+target_sources(app PRIVATE ${app_sources})
 
 target_include_directories(app PRIVATE include)
 # NORDIC SDK APP END

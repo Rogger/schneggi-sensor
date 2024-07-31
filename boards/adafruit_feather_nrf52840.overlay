@@ -49,6 +49,22 @@
 	};
 };
 
+&i2c1 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	
+	scd4x@62 {
+		status = "okay";
+		compatible = "sensirion,scd4x";
+		reg = <0x62>;
+		model = "scd40";
+		altitude = <290>;
+		measure-mode = "normal";
+		temperature-offset = <6>;
+		auto-calibration;
+	};
+};
+
 &adc {
 	#address-cells = <1>;
 	#size-cells = <0>;
