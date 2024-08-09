@@ -394,11 +394,10 @@ void update_sensor_values()
 
 		/* Convert measured value to attribute value, as specified in ZCL */
 		co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
-		LOG_INF("Attribute CO2:%10f", co2_attribute);
 
 		zb_zcl_status_t status =
 			zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
-					    ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+					    ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,	
 					    ZB_ZCL_CLUSTER_SERVER_ROLE,
 					    ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
 					    (zb_uint8_t *)&co2_attribute, ZB_FALSE);
@@ -590,9 +589,11 @@ static uint16_t cycles = 0;
 static void sensor_loop(zb_bufid_t bufid)
 {
 
-	LOG_INF("--Loop--");
+	LOG_DBG("--Loop--");
 
-	NRF_WDT->RR[0] = WDT_RR_RR_Reload;  //Reload watchdog register 0
+	//NRF_WDT->RR[0] = WDT_RR_RR_Reload;  //Reload watchdog register 0
+
+	LOG_DBG("zigbee_is_stack_started=%s,zigbee_is_zboss_thread_suspended=%s", zigbee_is_stack_started() ? "true" : "false",zigbee_is_zboss_thread_suspended()? "true" : "false");
 
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, bufid,
 										 ZB_MILLISECONDS_TO_BEACON_INTERVAL(
@@ -611,7 +612,7 @@ static void sensor_loop(zb_bufid_t bufid)
 	}
 	cycles++;
 
-	LOG_INF("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
+	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
 }
 
 static bool joining_signal_received = false;
@@ -756,7 +757,9 @@ int main(void)
 
 	//wdt_init(); //Initialize watchdog
 
-	return 0;
+	k_sleep(K_FOREVER);
+
+	return -1;
 
     /*while (true)
     {
@@ -770,8 +773,5 @@ int main(void)
 /*
 TODO
 - Use something else than scheduler
-- Integrate SCD4X
-- Report CO2 to HA
-
 
 */

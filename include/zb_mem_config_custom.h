@@ -87,6 +87,10 @@
 #undef ZB_CONFIG_SCHEDULER_Q_SIZE
 #define ZB_CONFIG_SCHEDULER_Q_SIZE 128
 
+/* Increase buffer pool size. */
+#undef ZB_CONFIG_IOBUF_POOL_SIZE
+#define ZB_CONFIG_IOBUF_POOL_SIZE 96
+
 /* Memory context definitions */
 #include "zb_mem_config_context.h"
 
