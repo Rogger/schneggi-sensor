@@ -23,10 +23,8 @@
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
 
-
-
 // Sleep
-static const uint16_t SLEEP_INTERVAL_SECONDS = 1 * 30;		// HA minimum = 30s
+static const uint16_t SLEEP_INTERVAL_SECONDS = 1 * 30;				 // HA minimum = 30s
 static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = 1 * 60 * 60; // HA minimum = 3600s
 static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
 #define ZB_PARENT_POLL_INTERVAL_SEC 60
@@ -119,10 +117,10 @@ ZB_ZCL_DECLARE_REL_HUMIDITY_MEASUREMENT_ATTRIB_LIST(
 	&dev_ctx.humidity_measure_attrs.max_measure_value);
 
 ZB_ZCL_DECLARE_CONCENTRATION_MEASUREMENT_ATTRIB_LIST(concentration_measurement_attr_list,
-						     &dev_ctx.concentration_measure_attrs.measure_value,
-						     &dev_ctx.concentration_measure_attrs.min_measure_value,
-						     &dev_ctx.concentration_measure_attrs.max_measure_value,
-						     &dev_ctx.concentration_measure_attrs.tolerance);
+													 &dev_ctx.concentration_measure_attrs.measure_value,
+													 &dev_ctx.concentration_measure_attrs.min_measure_value,
+													 &dev_ctx.concentration_measure_attrs.max_measure_value,
+													 &dev_ctx.concentration_measure_attrs.tolerance);
 
 /* Define 'bat_num' as empty in order to declare default battery set attributes. */
 /* According to Table 3-17 of ZCL specification, defining 'bat_num' as 2 or 3 allows */
@@ -217,11 +215,14 @@ static void init_shtc3_device(void)
 	LOG_DBG("Found device %s.", shtc3->name);
 }
 
-void air_quality_monitor_init(void)
+void init_scd4x_device(void)
 {
-	if (scd == NULL || device_is_ready(scd) == false) {
+	if (scd == NULL || device_is_ready(scd) == false)
+	{
 		LOG_ERR("Failed to initialize SCD4X device");
-	} else {
+	}
+	else
+	{
 		LOG_DBG("Found device %s.", scd->name);
 	}
 }
@@ -271,7 +272,7 @@ static void init_clusters_attr(void)
 		ZB_ZCL_STRING_CONST_SIZE(BULB_INIT_BASIC_MODEL_ID));
 
 	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.date_code, BULB_INIT_BASIC_DATE_CODE,
-			      ZB_ZCL_STRING_CONST_SIZE(BULB_INIT_BASIC_DATE_CODE));
+						  ZB_ZCL_STRING_CONST_SIZE(BULB_INIT_BASIC_DATE_CODE));
 
 	/* Identify cluster attributes data */
 	dev_ctx.identify_attr.identify_time =
@@ -303,7 +304,7 @@ static void init_clusters_attr(void)
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
 	dev_ctx.concentration_measure_attrs.max_measure_value =
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE; // 10 000ppm
-	dev_ctx.concentration_measure_attrs.tolerance = 0.0001f; // 100 ppm
+	dev_ctx.concentration_measure_attrs.tolerance = 0.0001f;	  // 100 ppm
 }
 
 /**@brief Function to toggle the identify LED
@@ -408,7 +409,8 @@ void update_sensor_values()
 	}
 
 	int err = sensor_sample_fetch(scd);
-	if (err) {
+	if (err)
+	{
 		LOG_ERR("Failed to fetch sample from SCD4X device");
 	}
 
@@ -420,9 +422,12 @@ void update_sensor_values()
 	struct sensor_value sensor_value;
 	err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
 	measured_co2 = sensor_value_to_double(&sensor_value);
-	if (err) {
+	if (err)
+	{
 		LOG_ERR("Failed to get sensor co2: %d", err);
-	} else {
+	}
+	else
+	{
 		LOG_INF("CO2: %f", measured_co2);
 
 		/* Convert measured value to attribute value, as specified in ZCL */
@@ -430,17 +435,16 @@ void update_sensor_values()
 
 		zb_zcl_status_t status =
 			zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
-					    ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,	
-					    ZB_ZCL_CLUSTER_SERVER_ROLE,
-					    ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
-					    (zb_uint8_t *)&co2_attribute, ZB_FALSE);
-		if (status) {
+								ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+								ZB_ZCL_CLUSTER_SERVER_ROLE,
+								ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
+								(zb_uint8_t *)&co2_attribute, ZB_FALSE);
+		if (status)
+		{
 			LOG_ERR("Failed to set ZCL attribute: %d", status);
 			err = status;
 		}
 	}
-
-
 }
 
 /** A point in a battery discharge curve sequence.
@@ -624,8 +628,8 @@ static void sensor_loop(zb_bufid_t bufid)
 	ZVUNUSED(bufid);
 
 	LOG_DBG("-- Loop %d / %d --", cycles, BATTERY_SLEEP_CYCLES);
-	LOG_DBG("zigbee_is_stack_started=%s,zigbee_is_zboss_thread_suspended=%s", zigbee_is_stack_started() ? "true" : "false",zigbee_is_zboss_thread_suspended()? "true" : "false");
-	LOG_DBG("joining_signal_received=%s,stack_initialised=%s", joining_signal_received ? "true" : "false", stack_initialised ? "true" : "false");
+	// LOG_DBG("zigbee_is_stack_started=%s,zigbee_is_zboss_thread_suspended=%s", zigbee_is_stack_started() ? "true" : "false",zigbee_is_zboss_thread_suspended()? "true" : "false");
+	// LOG_DBG("joining_signal_received=%s,stack_initialised=%s", joining_signal_received ? "true" : "false", stack_initialised ? "true" : "false");
 
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
 										 ZB_MILLISECONDS_TO_BEACON_INTERVAL(
@@ -643,7 +647,7 @@ static void sensor_loop(zb_bufid_t bufid)
 		cycles = 0;
 	}
 	cycles++;
-	
+
 	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
 }
 
@@ -715,7 +719,7 @@ void zboss_signal_handler(zb_bufid_t bufid)
 			LOG_WRN("Parent link failure");
 
 			zb_reset(0);
-			
+
 			/*if (stack_initialised && !joining_signal_received)
 			{
 				LOG_WRN("Broken rejoin procedure, reboot device.");
@@ -750,7 +754,7 @@ int main(void)
 
 	init_shtc3_device();
 
-	air_quality_monitor_init();
+	init_scd4x_device();
 
 	init_adc();
 
@@ -766,13 +770,13 @@ int main(void)
 	// nrf_802154_tx_power_set(8); //8 dBm (max)
 	LOG_DBG("802.15.4 transmit power: %d dBm", nrf_802154_tx_power_get());
 	LOG_DBG("ZB sleep threshold: %d ms", zb_get_sleep_threshold());
-	
+
 	// RX on when Idle and power_source are required for the ZigBee capability AC mains = False
 	// Turn off radio when sleeping https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/protocols/zigbee/configuring.html#sleepy-end-device-behavior
 	zigbee_configure_sleepy_behavior(true);
-	
+
 	// https://developer.nordicsemi.com/nRF_Connect_SDK/doc/zboss/3.11.2.1/zigbee_prog_principles.html#zigbee_power_optimization_sleepy
-	zb_set_ed_timeout(ED_AGING_TIMEOUT_32MIN);	
+	zb_set_ed_timeout(ED_AGING_TIMEOUT_32MIN);
 	zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
 
 	ZB_AF_REGISTER_DEVICE_CTX(&device_ctx);
@@ -791,10 +795,10 @@ int main(void)
 	return -1;
 }
 
-
 /*
 TODO
 - WDT
-- 
+- Measure power consumption
+- README
 
 */
