@@ -11,7 +11,7 @@
 
 #include <zboss_api.h>
 #include <zboss_api_addons.h>
-#include <zb_mem_config_custom.h>
+#include <zb_mem_config_med.h>
 #include <zigbee/zigbee_app_utils.h>
 #include <zigbee/zigbee_error_handler.h>
 #include <zb_nrf_platform.h>
@@ -26,17 +26,19 @@
 
 
 // Sleep
-#define SLEEP_INTERVAL_SECONDS 1 * 60			// HA minimum = 30s
-#define BATTERY_REPORT_INTERVAL_SECONDS 1 * 60 * 60 // HA minimum = 3600s
-#define BATTERY_SLEEP_CYCLES BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS
+static const uint16_t SLEEP_INTERVAL_SECONDS = 1 * 30;		// HA minimum = 30s
+static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = 1 * 60 * 60; // HA minimum = 3600s
+static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
 #define ZB_PARENT_POLL_INTERVAL_SEC 60
+
+static bool joining_signal_received = false;
+static bool stack_initialised = false;
 
 // ZigBee
 #define SCHNEGGI_ENDPOINT 0x01
 #define BULB_INIT_BASIC_MANUF_NAME "FuZZi"
 #define BULB_INIT_BASIC_MODEL_ID "Schneggi Sensor"
-#define BULB_INIT_BASIC_DATE_CODE "20231029"
-#define BULB_INIT_BASIC_LOCATION_DESC "Living Room"
+#define BULB_INIT_BASIC_DATE_CODE "20240810"
 
 typedef struct
 {
@@ -212,13 +214,15 @@ static void init_shtc3_device(void)
 		return;
 	}
 
-	LOG_INF("Found device %s.", shtc3->name);
+	LOG_DBG("Found device %s.", shtc3->name);
 }
 
 void air_quality_monitor_init(void)
 {
 	if (scd == NULL || device_is_ready(scd) == false) {
 		LOG_ERR("Failed to initialize SCD4X device");
+	} else {
+		LOG_DBG("Found device %s.", scd->name);
 	}
 }
 
@@ -252,6 +256,9 @@ static void init_clusters_attr(void)
 	/* Basic cluster attributes data */
 	dev_ctx.basic_attr.zcl_version = ZB_ZCL_VERSION;
 	dev_ctx.basic_attr.power_source = ZB_ZCL_BASIC_POWER_SOURCE_BATTERY;
+	dev_ctx.basic_attr.app_version = 0x01;
+	dev_ctx.basic_attr.stack_version = 0x03;
+	dev_ctx.basic_attr.hw_version = 0x01;
 
 	ZB_ZCL_SET_STRING_VAL(
 		dev_ctx.basic_attr.mf_name,
@@ -263,14 +270,40 @@ static void init_clusters_attr(void)
 		BULB_INIT_BASIC_MODEL_ID,
 		ZB_ZCL_STRING_CONST_SIZE(BULB_INIT_BASIC_MODEL_ID));
 
-	/* Identify cluster attributes data. */
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.date_code, BULB_INIT_BASIC_DATE_CODE,
+			      ZB_ZCL_STRING_CONST_SIZE(BULB_INIT_BASIC_DATE_CODE));
+
+	/* Identify cluster attributes data */
 	dev_ctx.identify_attr.identify_time =
 		ZB_ZCL_IDENTIFY_IDENTIFY_TIME_DEFAULT_VALUE;
 
+	/* Power */
 	dev_ctx.power_config_attr.battery_voltage = ZB_ZCL_POWER_CONFIG_BATTERY_VOLTAGE_INVALID;
 	dev_ctx.power_config_attr.battery_percentage_remaining = ZB_ZCL_POWER_CONFIG_BATTERY_REMAINING_UNKNOWN;
 	dev_ctx.power_config_attr.battery_size = ZB_ZCL_POWER_CONFIG_BATTERY_SIZE_DEFAULT_VALUE;
 	dev_ctx.power_config_attr.battery_quantity = 1;
+
+	/* Temperature */
+	dev_ctx.temp_measure_attrs.measure_value = ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_UNKNOWN;
+	dev_ctx.temp_measure_attrs.min_measure_value = ZB_ZCL_TEMP_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
+	dev_ctx.temp_measure_attrs.max_measure_value = ZB_ZCL_TEMP_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE;
+	dev_ctx.temp_measure_attrs.tolerance = ZB_ZCL_ATTR_TEMP_MEASUREMENT_TOLERANCE_MAX_VALUE;
+
+	/* Humidity */
+	dev_ctx.humidity_measure_attrs.measure_value = ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_UNKNOWN;
+	dev_ctx.humidity_measure_attrs.min_measure_value =
+		ZB_ZCL_REL_HUMIDITY_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
+	dev_ctx.humidity_measure_attrs.max_measure_value =
+		ZB_ZCL_REL_HUMIDITY_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE;
+
+	/* CO2 */
+	dev_ctx.concentration_measure_attrs.measure_value =
+		ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_UNKNOWN;
+	dev_ctx.concentration_measure_attrs.min_measure_value =
+		ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
+	dev_ctx.concentration_measure_attrs.max_measure_value =
+		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE; // 10 000ppm
+	dev_ctx.concentration_measure_attrs.tolerance = 0.0001f; // 100 ppm
 }
 
 /**@brief Function to toggle the identify LED
@@ -390,7 +423,7 @@ void update_sensor_values()
 	if (err) {
 		LOG_ERR("Failed to get sensor co2: %d", err);
 	} else {
-		LOG_INF("CO2 %f", measured_co2);
+		LOG_INF("CO2: %f", measured_co2);
 
 		/* Convert measured value to attribute value, as specified in ZCL */
 		co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
@@ -584,18 +617,17 @@ void update_battery()
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
 
-static uint16_t cycles = 0;
+static uint16_t cycles = 1;
 
 static void sensor_loop(zb_bufid_t bufid)
 {
+	ZVUNUSED(bufid);
 
-	LOG_DBG("--Loop--");
-
-	//NRF_WDT->RR[0] = WDT_RR_RR_Reload;  //Reload watchdog register 0
-
+	LOG_DBG("-- Loop %d / %d --", cycles, BATTERY_SLEEP_CYCLES);
 	LOG_DBG("zigbee_is_stack_started=%s,zigbee_is_zboss_thread_suspended=%s", zigbee_is_stack_started() ? "true" : "false",zigbee_is_zboss_thread_suspended()? "true" : "false");
+	LOG_DBG("joining_signal_received=%s,stack_initialised=%s", joining_signal_received ? "true" : "false", stack_initialised ? "true" : "false");
 
-	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, bufid,
+	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
 										 ZB_MILLISECONDS_TO_BEACON_INTERVAL(
 											 SLEEP_INTERVAL_SECONDS * 1000));
 	if (ret != RET_OK)
@@ -604,24 +636,20 @@ static void sensor_loop(zb_bufid_t bufid)
 	}
 
 	update_sensor_values();
-	LOG_DBG("%d", cycles % BATTERY_SLEEP_CYCLES);
-	if (cycles % BATTERY_SLEEP_CYCLES == 0)
+
+	if (cycles == BATTERY_SLEEP_CYCLES)
 	{
 		update_battery();
 		cycles = 0;
 	}
 	cycles++;
-
+	
 	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
 }
-
-static bool joining_signal_received = false;
-static bool stack_initialised = false;
 
 void zboss_signal_handler(zb_bufid_t bufid)
 {
 
-	// See zigbee_default_signal_handler() for all available signals.
 	zb_zdo_app_signal_hdr_t *sig_hndler = NULL;
 	zb_zdo_app_signal_type_t sig = zb_get_app_signal(bufid, /*sg_p=*/&sig_hndler);
 	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(bufid);
@@ -629,6 +657,7 @@ void zboss_signal_handler(zb_bufid_t bufid)
 	{
 	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
 	{ // New network
+		LOG_DBG("First Start. Status: %d", status);
 		joining_signal_received = true;
 		break;
 	}
@@ -660,6 +689,7 @@ void zboss_signal_handler(zb_bufid_t bufid)
 			/* Set joining_signal_received to false so broken rejoin procedure can be detected correctly. */
 			if (leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN)
 			{
+				LOG_DBG("Leafe with rejoin.");
 				joining_signal_received = false;
 			}
 		}
@@ -676,16 +706,25 @@ void zboss_signal_handler(zb_bufid_t bufid)
 	}
 	case ZB_NLME_STATUS_INDICATION:
 	{
+		LOG_DBG("NLME Status indication. Status: %d", status);
+
 		zb_zdo_signal_nlme_status_indication_params_t *nlme_status_ind =
 			ZB_ZDO_SIGNAL_GET_PARAMS(sig_hndler, zb_zdo_signal_nlme_status_indication_params_t);
 		if (nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE)
 		{
+			LOG_WRN("Parent link failure");
 
-			if (stack_initialised && !joining_signal_received)
+			zb_reset(0);
+			
+			/*if (stack_initialised && !joining_signal_received)
 			{
-				LOG_DBG("Broken rejoin procedure, reboot device.");
+				LOG_WRN("Broken rejoin procedure, reboot device.");
 				zb_reset(0);
 			}
+			else
+			{
+				bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
+			}*/
 		}
 		break;
 	}
@@ -703,14 +742,6 @@ void zboss_signal_handler(zb_bufid_t bufid)
 	{
 		zb_buf_free(bufid);
 	}
-}
-
-void wdt_init(void)
-{
-	NRF_WDT->CONFIG = (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos) | ( WDT_CONFIG_SLEEP_Pause << WDT_CONFIG_SLEEP_Pos);   //Configure Watchdog. a) Pause watchdog while the CPU is halted by the debugger.  b) Keep the watchdog running while the CPU is sleeping.
-	NRF_WDT->CRV = 30*32768;             //ca 3 sek. timout
-	NRF_WDT->RREN |= WDT_RREN_RR0_Msk;  //Enable reload register 0
-	NRF_WDT->TASKS_START = 1;           //Start the Watchdog timer
 }
 
 int main(void)
@@ -732,17 +763,17 @@ int main(void)
 		power_down_unused_ram();
 	}
 
+	// nrf_802154_tx_power_set(8); //8 dBm (max)
+	LOG_DBG("802.15.4 transmit power: %d dBm", nrf_802154_tx_power_get());
+	LOG_DBG("ZB sleep threshold: %d ms", zb_get_sleep_threshold());
+	
 	// RX on when Idle and power_source are required for the ZigBee capability AC mains = False
 	// Turn off radio when sleeping https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/protocols/zigbee/configuring.html#sleepy-end-device-behavior
 	zigbee_configure_sleepy_behavior(true);
-
-	// nrf_802154_tx_power_set(8); //8 dBm (max)
-	LOG_DBG("802.15.4 transmit power: %d dBm", nrf_802154_tx_power_get());
 	
-	LOG_DBG("ZB sleep threshold: %d ms", zb_get_sleep_threshold());
-	
-	//zb_set_ed_timeout(ED_AGING_TIMEOUT_64MIN);	
-	//zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
+	// https://developer.nordicsemi.com/nRF_Connect_SDK/doc/zboss/3.11.2.1/zigbee_prog_principles.html#zigbee_power_optimization_sleepy
+	zb_set_ed_timeout(ED_AGING_TIMEOUT_32MIN);	
+	zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
 
 	ZB_AF_REGISTER_DEVICE_CTX(&device_ctx);
 
@@ -755,23 +786,15 @@ int main(void)
 
 	LOG_INF("Schneggi sensor started");
 
-	//wdt_init(); //Initialize watchdog
-
 	k_sleep(K_FOREVER);
 
 	return -1;
-
-    /*while (true)
-    {
-			__WFE();
-			__SEV();
-			__WFE();
-    }*/
 }
 
 
 /*
 TODO
-- Use something else than scheduler
+- WDT
+- 
 
 */
