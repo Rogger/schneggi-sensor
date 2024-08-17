@@ -24,13 +24,15 @@
 #include "zcl/zb_zcl_concentration_measurement.h"
 
 // Sleep
-static const uint16_t SLEEP_INTERVAL_SECONDS = 1 * 30;				 // HA minimum = 30s
+static const uint16_t SLEEP_INTERVAL_SECONDS = 1 * 60;				 // HA minimum = 30s
 static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = 1 * 60 * 60; // HA minimum = 3600s
 static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
 #define ZB_PARENT_POLL_INTERVAL_SEC 60
 
 static bool joining_signal_received = false;
 static bool stack_initialised = false;
+
+#define ENABLE_SCD
 
 // ZigBee
 #define SCHNEGGI_ENDPOINT 0x01
@@ -408,6 +410,7 @@ void update_sensor_values()
 		return;
 	}
 
+	#ifdef ENABLE_SCD
 	int err = sensor_sample_fetch(scd);
 	if (err)
 	{
@@ -445,6 +448,7 @@ void update_sensor_values()
 			err = status;
 		}
 	}
+	#endif
 }
 
 /** A point in a battery discharge curve sequence.
@@ -630,6 +634,7 @@ static void sensor_loop(zb_bufid_t bufid)
 	LOG_DBG("-- Loop %d / %d --", cycles, BATTERY_SLEEP_CYCLES);
 	// LOG_DBG("zigbee_is_stack_started=%s,zigbee_is_zboss_thread_suspended=%s", zigbee_is_stack_started() ? "true" : "false",zigbee_is_zboss_thread_suspended()? "true" : "false");
 	// LOG_DBG("joining_signal_received=%s,stack_initialised=%s", joining_signal_received ? "true" : "false", stack_initialised ? "true" : "false");
+	LOG_DBG("Joined %s", ZB_JOINED() ? "true" : "false");
 
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
 										 ZB_MILLISECONDS_TO_BEACON_INTERVAL(
@@ -754,7 +759,10 @@ int main(void)
 
 	init_shtc3_device();
 
+	#ifdef ENABLE_SCD
 	init_scd4x_device();
+	#endif
+
 
 	init_adc();
 
