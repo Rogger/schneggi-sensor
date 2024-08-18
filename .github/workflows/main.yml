@@ -21,7 +21,9 @@ jobs:
       - name: ls
         working-directory: sensor
         run: |
+          pwd
           ls
+          ls ${{ github.workspace }}
           
       - name: Prepare west project
         run: |
@@ -31,5 +33,5 @@ jobs:
       - name: Build firmware
         working-directory: sensor
         run: |
-          west build --build-dir ${{ github.workspace }}/build ${{ github.workspace }} --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=${{ github.workspace }} -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCACHED_CONF_FILE=${{ github.workspace }}/prj_debug.conf -DDTC_OVERLAY_FILE=${{ github.workspace }}/boards/adafruit_feather_nrf52840.overlay
+          west build --build-dir build . --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=${PWD} -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCACHED_CONF_FILE=prj_debug.conf -DDTC_OVERLAY_FILE=boards/adafruit_feather_nrf52840.overlay
           
