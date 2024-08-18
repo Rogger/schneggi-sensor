@@ -1,0 +1,35 @@
+name: Build and test app in NCS docker container
+
+on:
+  push:
+
+jobs:
+  build-and-test-in-docker:
+    runs-on: ubuntu-22.04
+    container: ghcr.io/nrfconnect/sdk-nrf-toolchain:v2.6.99
+    defaults:
+      run:
+        # Bash shell is needed to set toolchain related environment variables in docker container
+        # It is a workaround for GitHub Actions limitation https://github.com/actions/runner/issues/1964
+        shell: bash
+    steps:
+      - name: Checkout repository with example application
+        uses: actions/checkout@v4
+        with:
+          path: sensor
+
+      - name: ls
+        working-directory: sensor
+        run: |
+          ls
+          
+      - name: Prepare west project
+        run: |
+          west init -l sensor
+          west update -o=--depth=1 -n
+
+      - name: Build firmware
+        working-directory: sensor
+        run: |
+          west build --build-dir ${{ github.workspace }}/build ${{ github.workspace }} --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=${{ github.workspace }} -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCACHED_CONF_FILE=${{ github.workspace }}/prj_debug.conf -DDTC_OVERLAY_FILE=${{ github.workspace }}/boards/adafruit_feather_nrf52840.overlay
+          
