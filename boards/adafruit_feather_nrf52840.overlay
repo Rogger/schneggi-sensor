@@ -58,9 +58,9 @@
 		compatible = "sensirion,scd4x";
 		reg = <0x62>;
 		model = "scd40";
-		altitude = <290>;
+		altitude = <574>; //Innsbruck
 		measure-mode = "normal";
-		temperature-offset = <6>;
+		temperature-offset = <4>;
 		auto-calibration;
 	};
 };

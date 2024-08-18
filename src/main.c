@@ -24,13 +24,9 @@
 #include "zcl/zb_zcl_concentration_measurement.h"
 
 // Sleep
-static const uint16_t SLEEP_INTERVAL_SECONDS = 1 * 60;				 // HA minimum = 30s
-static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = 1 * 60 * 60; // HA minimum = 3600s
+static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60; // HA minimum = 30s
+static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60 * 60; // HA minimum = 3600s
 static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
-#define ZB_PARENT_POLL_INTERVAL_SEC 60
-
-static bool joining_signal_received = false;
-static bool stack_initialised = false;
 
 #define ENABLE_SCD
 
@@ -361,7 +357,7 @@ void update_sensor_values()
 
 		measured_temperature = sensor_value_to_double(&temp);
 		temperature_attribute = (int16_t)(measured_temperature * 100);
-		LOG_INF("Temperature: %.2f", measured_temperature);
+		LOG_INF("Temperature: %.2f °C", measured_temperature);
 
 		zb_zcl_status_t status = zb_zcl_set_attr_val(
 			SCHNEGGI_ENDPOINT,
@@ -389,7 +385,7 @@ void update_sensor_values()
 
 		measured_humidity = sensor_value_to_double(&hum);
 		humidity_attribute = (int16_t)(measured_humidity * 100);
-		LOG_INF("Humidity: %.2f", measured_humidity);
+		LOG_INF("Humidity: %.2f RH", measured_humidity);
 
 		zb_zcl_status_t status = zb_zcl_set_attr_val(
 			SCHNEGGI_ENDPOINT,
@@ -410,7 +406,7 @@ void update_sensor_values()
 		return;
 	}
 
-	#ifdef ENABLE_SCD
+#ifdef ENABLE_SCD
 	int err = sensor_sample_fetch(scd);
 	if (err)
 	{
@@ -418,7 +414,6 @@ void update_sensor_values()
 	}
 
 	err = 0;
-
 	double measured_co2 = 0.0;
 	float co2_attribute = 0.0;
 
@@ -431,7 +426,7 @@ void update_sensor_values()
 	}
 	else
 	{
-		LOG_INF("CO2: %f", measured_co2);
+		LOG_INF("CO2: %.2f ppm", measured_co2);
 
 		/* Convert measured value to attribute value, as specified in ZCL */
 		co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
@@ -448,7 +443,7 @@ void update_sensor_values()
 			err = status;
 		}
 	}
-	#endif
+#endif
 }
 
 /** A point in a battery discharge curve sequence.
@@ -625,17 +620,15 @@ void update_battery()
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
 
-static uint16_t cycles = 1;
+static uint16_t cycles = 0;
 
 static void sensor_loop(zb_bufid_t bufid)
 {
 	ZVUNUSED(bufid);
 
-	LOG_DBG("-- Loop %d / %d --", cycles, BATTERY_SLEEP_CYCLES);
-	// LOG_DBG("zigbee_is_stack_started=%s,zigbee_is_zboss_thread_suspended=%s", zigbee_is_stack_started() ? "true" : "false",zigbee_is_zboss_thread_suspended()? "true" : "false");
-	// LOG_DBG("joining_signal_received=%s,stack_initialised=%s", joining_signal_received ? "true" : "false", stack_initialised ? "true" : "false");
-	LOG_DBG("Joined %s", ZB_JOINED() ? "true" : "false");
+	LOG_DBG("-- Loop %d / %d (%s)--", cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
 
+	ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
 										 ZB_MILLISECONDS_TO_BEACON_INTERVAL(
 											 SLEEP_INTERVAL_SECONDS * 1000));
@@ -646,110 +639,136 @@ static void sensor_loop(zb_bufid_t bufid)
 
 	update_sensor_values();
 
-	if (cycles == BATTERY_SLEEP_CYCLES)
+	/* Update battery on startup (cycles==0) or oncce BATTERY_SLEEP_CYCLES is reached*/
+	if (cycles == 0 || cycles == BATTERY_SLEEP_CYCLES)
 	{
 		update_battery();
-		cycles = 0;
+		cycles = 1;
 	}
-	cycles++;
+	else
+	{
+		cycles++;
+	}
 
 	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
 }
 
-void zboss_signal_handler(zb_bufid_t bufid)
+void zboss_signal_handler(zb_uint8_t param)
 {
+	zb_zdo_app_signal_hdr_t *p_sg_p = NULL;
+	zb_zdo_app_signal_type_t sig = zb_get_app_signal(param, &p_sg_p);
+	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(param);
+	zb_bool_t comm_status;
 
-	zb_zdo_app_signal_hdr_t *sig_hndler = NULL;
-	zb_zdo_app_signal_type_t sig = zb_get_app_signal(bufid, /*sg_p=*/&sig_hndler);
-	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(bufid);
 	switch (sig)
 	{
-	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
-	{ // New network
-		LOG_DBG("First Start. Status: %d", status);
-		joining_signal_received = true;
+	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
+		LOG_DBG("> SKIP_STARTUP");
+
+		LOG_DBG("ZigBee stack initialized. Start commissioning");
+		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
+		if (comm_status != ZB_TRUE)
+		{
+			LOG_WRN("Commissioning error");
+		}
 		break;
-	}
-	case ZB_BDB_SIGNAL_STEERING:
+
+	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
+		LOG_DBG("> DEVICE_FIRST_START");
+
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
-	{ // Previously joined network.
-		LOG_DBG("Steering complete. Status: %d", status);
+		LOG_DBG("> DEVICE_REBOOT");
+		/* fall-through */
+
+	case ZB_BDB_SIGNAL_STEERING:
+		LOG_DBG("> STEERING");
+
 		if (status == RET_OK)
 		{
-			LOG_DBG("Steering successful. Status: %d", status);
+			LOG_INF("Joined network successfully!");
 
-			LOG_DBG("Set long poll interval: %d s", ZB_PARENT_POLL_INTERVAL_SEC);
-			zb_zdo_pim_set_long_poll_interval(1000 * ZB_PARENT_POLL_INTERVAL_SEC);
+			/* timeout for receiving data from sensor and voltage from battery */
+			ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
+			ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
+								  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
+
+			/* change data request timeout */
+			zb_zdo_pim_set_long_poll_interval(60000);
 		}
 		else
 		{
-			LOG_DBG("Steering failed. Status: %d", status);
-		}
-		joining_signal_received = true;
-		break;
-	}
-	case ZB_ZDO_SIGNAL_LEAVE:
-	{
-		if (status == RET_OK)
-		{
-			zb_zdo_signal_leave_params_t *leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(sig_hndler, zb_zdo_signal_leave_params_t);
-			LOG_DBG("Network left (leave type: %d)", leave_params->leave_type);
+			LOG_WRN("Failed to join network. Status: %d", status);
 
-			/* Set joining_signal_received to false so broken rejoin procedure can be detected correctly. */
-			if (leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN)
+			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
+			if (comm_status != ZB_TRUE)
 			{
-				LOG_DBG("Leafe with rejoin.");
-				joining_signal_received = false;
+				LOG_WRN("Commissioning error");
 			}
 		}
-		break;
-	}
-	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
-	{
-		stack_initialised = true;
-		LOG_DBG("Started zigbee stack and waiting for connection to network.");
 
-		ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-							  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
 		break;
-	}
+
+	case ZB_ZDO_SIGNAL_LEAVE:
+		LOG_DBG("> LEAVE");
+
+		if (status == RET_OK)
+		{
+			zb_zdo_signal_leave_params_t *p_leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_leave_params_t);
+			LOG_INF("Network left. Leave type: %d", p_leave_params->leave_type);
+
+			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
+			if (comm_status != ZB_TRUE)
+			{
+				LOG_WRN("Commissioning error");
+			}
+		}
+		else
+		{
+			LOG_ERR("Unable to leave network. Status: %d", status);
+		}
+		break;
+
+	case ZB_COMMON_SIGNAL_CAN_SLEEP:
+		zb_sleep_now();
+		break;
+
+	case ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
+		LOG_DBG("> PRODUCTION_CONFIG_READY");
+		if (status != RET_OK)
+		{
+			LOG_DBG("Production config is not present or invalid");
+		}
+		else
+		{
+			LOG_DBG("Production config ready");
+		}
+		break;
+
 	case ZB_NLME_STATUS_INDICATION:
 	{
+		LOG_DBG("> STATUS_INDICATION");
 		LOG_DBG("NLME Status indication. Status: %d", status);
 
 		zb_zdo_signal_nlme_status_indication_params_t *nlme_status_ind =
-			ZB_ZDO_SIGNAL_GET_PARAMS(sig_hndler, zb_zdo_signal_nlme_status_indication_params_t);
+			ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_nlme_status_indication_params_t);
 		if (nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE)
 		{
 			LOG_WRN("Parent link failure");
 
 			zb_reset(0);
-
-			/*if (stack_initialised && !joining_signal_received)
-			{
-				LOG_WRN("Broken rejoin procedure, reboot device.");
-				zb_reset(0);
-			}
-			else
-			{
-				bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-			}*/
 		}
 		break;
 	}
+
+	default:
+		/* Unhandled signal. For more information see: zb_zdo_app_signal_type_e and zb_ret_e */
+		LOG_INF("Unhandled signal %d. Status: %d", sig, status);
+		break;
 	}
 
-	/* No application-specific behavior is required.
-	 * Call default signal handler.
-	 */
-	ZB_ERROR_CHECK(zigbee_default_signal_handler(bufid));
-
-	/* All callbacks should either reuse or free passed buffers.
-	 * If bufid == 0, the buffer is invalid (not passed).
-	 */
-	if (bufid)
+	if (param)
 	{
-		zb_buf_free(bufid);
+		zb_buf_free(param);
 	}
 }
 
@@ -759,10 +778,9 @@ int main(void)
 
 	init_shtc3_device();
 
-	#ifdef ENABLE_SCD
+#ifdef ENABLE_SCD
 	init_scd4x_device();
-	#endif
-
+#endif
 
 	init_adc();
 
@@ -804,8 +822,9 @@ int main(void)
 }
 
 /*
-TODO
-- WDT
+
+
+WDT
 - Measure power consumption
 - README
 
