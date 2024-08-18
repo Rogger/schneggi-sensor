@@ -1,5 +1,4 @@
-name: Build and test app in NCS docker container
-
+name: Build debug and release
 on:
   push:
 
@@ -13,24 +12,23 @@ jobs:
         # It is a workaround for GitHub Actions limitation https://github.com/actions/runner/issues/1964
         shell: bash
     steps:
-      - name: Checkout repository with example application
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           path: sensor
-
-      - name: ls
-        working-directory: sensor
-        run: |
-          pwd
-          ls
           
       - name: Prepare west project
         run: |
           west init -l sensor
           west update -o=--depth=1 -n
 
-      - name: Build firmware
+      - name: Build debug release
         working-directory: sensor
         run: |
           west build --build-dir $(pwd)/build $(pwd) --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=$(pwd) -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCACHED_CONF_FILE=$(pwd)/prj_debug.conf -DDTC_OVERLAY_FILE=$(pwd)/boards/adafruit_feather_nrf52840.overlay
-          
+      
+      - name: Store debug release
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-applications
+          path: sensor/**/zephyr/merged.hex
