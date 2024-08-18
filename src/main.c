@@ -799,7 +799,8 @@ int main(void)
 
 	// RX on when Idle and power_source are required for the ZigBee capability AC mains = False
 	// Turn off radio when sleeping https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/protocols/zigbee/configuring.html#sleepy-end-device-behavior
-	zigbee_configure_sleepy_behavior(true);
+	zb_set_rx_on_when_idle(ZB_FALSE);
+	LOG_INF("Enabled sleepy end device behavior.");
 
 	// https://developer.nordicsemi.com/nRF_Connect_SDK/doc/zboss/3.11.2.1/zigbee_prog_principles.html#zigbee_power_optimization_sleepy
 	zb_set_ed_timeout(ED_AGING_TIMEOUT_32MIN);
@@ -810,7 +811,9 @@ int main(void)
 	init_clusters_attr();
 
 	ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER(SCHNEGGI_ENDPOINT, identify_cb);
-	zigbee_erase_persistent_storage(ZB_FALSE);
+	
+	// Erase persistent storage
+	zb_set_nvram_erase_at_start(ZB_FALSE);
 
 	zigbee_enable();
 
@@ -822,9 +825,7 @@ int main(void)
 }
 
 /*
-
-
-WDT
+- WDT
 - Measure power consumption
 - README
 
