@@ -1,21 +1,22 @@
 # Schneggi sensor 🐌
-A low power ZigBee temperature and humidity sensor integrated with HomeAssistant.
+A low-power ZigBee sensor integrated with HomeAssistant for monitoring temperature, humidity, and CO2 levels.
 
 ## Design Goals
 - High accuracy temperature and humidity measurements ([Sensirion SHTC3](https://www.sensirion.com/products/catalog/SHTC3/))
-- Designed for low power consumption and long battery life
+- High accuracy CO2 measurement ([Sensirion SCD40](https://sensirion.com/products/catalog/SCD40)) - optional board
+- Low power consumption and long battery life
   - Hardware: nRF52840 chip, low-current linear regulator, battery monitor with on/off capability 
-  - Software: Deep sleep
-- Can be powered by
-  - Battery with JST connector and 3V to 6,5V (e.g. 350mAh li-poly)
-  - Power supply with USB-C connector
-- Small footprint (5,5cm x 4,5cm)
+  - Software: Zigbee sleepy end device
+  - Measured: 3uA average over 1 minute (without CO2). 3mA average over 1 minute (with CO2 low-power mode)
+- Can be powered with 3V to 6V (JST connector), e.g. 350mAh li-poly.
+- Small footprint (5cm x 4,5cm)
 - Tested with [Home Assistant](https://www.home-assistant.io/) and [SkyConnect](https://www.home-assistant.io/skyconnect/)
 
 ## PCB
-The PCB was designed with KiCad 6 and manufactured/assembled with JLCPCB. All relevant files can be found in the [repo](hardware/E73-2G4M08S1C-52840)
+The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All relevant files can be found in the [repo](hardware)
 
-![E73-2G4M08S1C-52840](https://github.com/Rogger/schneggi-sensor/assets/371835/75e2d0dc-5a9e-4166-911b-2f92178287d6)
+![base](https://github.com/user-attachments/assets/ae48fca6-d7ca-4260-b0ca-0d7fdca1a1e8)
+![co2](https://github.com/user-attachments/assets/a420414e-1857-45f5-8971-0bba9cf12d0e)
 
 ## Case
 A 3D printable case was generated with the help of [Ultimate Box Maker](https://github.com/jbebel/Ultimate-Box-Maker).
