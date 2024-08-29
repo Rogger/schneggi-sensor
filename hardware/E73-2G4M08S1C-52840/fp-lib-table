@@ -1,3 +1,0 @@
-(fp_lib_table
-  (lib (name "schneggi_library")(type "KiCad")(uri "${KIPRJMOD}/schneggi_library.pretty")(options "")(descr ""))
-)

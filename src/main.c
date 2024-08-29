@@ -823,10 +823,3 @@ int main(void)
 
 	return -1;
 }
-
-/*
-- WDT
-- Measure power consumption
-- README
-
-*/

@@ -60,7 +60,7 @@
 		model = "scd40";
 		altitude = <574>; //Innsbruck
 		measure-mode = "normal";
-		temperature-offset = <4>;
+		temperature-offset = <0>;
 		auto-calibration;
 	};
 };
