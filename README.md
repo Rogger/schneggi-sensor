@@ -1,7 +1,6 @@
 # Schneggi sensor 🐌
 A low-power ZigBee sensor integrated with HomeAssistant for monitoring temperature, humidity, and CO2.
 
-## Design Goals
 - High accuracy temperature and humidity measurements ([Sensirion SHTC3](https://www.sensirion.com/products/catalog/SHTC3/))
 - High accuracy CO2 measurement ([Sensirion SCD40](https://sensirion.com/products/catalog/SCD40)) - optional board
 - Low power consumption and long battery life
