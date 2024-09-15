@@ -1,8 +1,12 @@
 manifest:
+  remotes:
+    - name: ncs
+      url-base: https://github.com/nrfconnect
   projects:
     - name: nrf
-      url: https://github.com/nrfconnect/sdk-nrf.git
-      revision: refs/tags/v2.5.0
+      repo-path: sdk-nrf
+      remote: ncs
+      revision: v2.5.2
       import: true
     - name: sensirion_drivers
       path: modules/sensirion_drivers

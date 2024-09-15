@@ -23,7 +23,7 @@ The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All re
 
 ## How to build?
 - Install VSCode + nRF plugins
-- Install nRF SDK and toolchain 2.5.0
+- Install nRF SDK and toolchain 2.5.2
 - Add a build configuration with custom board `adafruit_feather_nrf52840`
 
 ## Resources
