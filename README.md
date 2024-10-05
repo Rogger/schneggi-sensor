@@ -1,4 +1,4 @@
-# Schneggi sensor 🐌
+# Schneggi sensor 🐌 [![Build debug and release](https://github.com/Rogger/schneggi-sensor/actions/workflows/main.yml/badge.svg)](https://github.com/Rogger/schneggi-sensor/actions/workflows/main.yml)
 A low-power ZigBee sensor integrated with HomeAssistant for monitoring temperature, humidity, and CO2.
 
 - High accuracy temperature and humidity measurements ([Sensirion SHTC3](https://www.sensirion.com/products/catalog/SHTC3/))
