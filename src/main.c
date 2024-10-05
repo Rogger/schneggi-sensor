@@ -24,7 +24,7 @@
 #include "zcl/zb_zcl_concentration_measurement.h"
 
 // Sleep
-static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60; // HA minimum = 30s
+static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60;				// HA minimum = 30s
 static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60 * 60; // HA minimum = 3600s
 static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
 
@@ -653,6 +653,9 @@ static void sensor_loop(zb_bufid_t bufid)
 	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
 }
 
+bool joining_signal_received = false;
+bool stack_initialised = false;
+
 void zboss_signal_handler(zb_uint8_t param)
 {
 	zb_zdo_app_signal_hdr_t *p_sg_p = NULL;
@@ -666,6 +669,8 @@ void zboss_signal_handler(zb_uint8_t param)
 		LOG_DBG("> SKIP_STARTUP");
 
 		LOG_DBG("ZigBee stack initialized. Start commissioning");
+		stack_initialised = true;
+
 		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
 		if (comm_status != ZB_TRUE)
 		{
@@ -675,6 +680,7 @@ void zboss_signal_handler(zb_uint8_t param)
 
 	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
 		LOG_DBG("> DEVICE_FIRST_START");
+		/* fall-through */
 
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
 		LOG_DBG("> DEVICE_REBOOT");
@@ -682,6 +688,8 @@ void zboss_signal_handler(zb_uint8_t param)
 
 	case ZB_BDB_SIGNAL_STEERING:
 		LOG_DBG("> STEERING");
+
+		joining_signal_received = true;
 
 		if (status == RET_OK)
 		{
@@ -715,6 +723,11 @@ void zboss_signal_handler(zb_uint8_t param)
 		{
 			zb_zdo_signal_leave_params_t *p_leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_leave_params_t);
 			LOG_INF("Network left. Leave type: %d", p_leave_params->leave_type);
+
+			if (p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN)
+			{
+				joining_signal_received = false;
+			}
 
 			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
 			if (comm_status != ZB_TRUE)
@@ -755,7 +768,11 @@ void zboss_signal_handler(zb_uint8_t param)
 		{
 			LOG_WRN("Parent link failure");
 
-			zb_reset(0);
+			if (stack_initialised && !joining_signal_received)
+			{
+				LOG_WRN("Broken rejon procedure");
+				zb_reset(0);
+			}
 		}
 		break;
 	}
@@ -811,7 +828,7 @@ int main(void)
 	init_clusters_attr();
 
 	ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER(SCHNEGGI_ENDPOINT, identify_cb);
-	
+
 	// Erase persistent storage
 	zb_set_nvram_erase_at_start(ZB_FALSE);
 

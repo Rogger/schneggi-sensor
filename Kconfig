@@ -2,8 +2,6 @@ source "Kconfig.zephyr"
 
 config SENSOR_UPDATE_INTERVAL_MINUTES
   int "Sensor update interval in minutes"
-  default 5
 
 config BATTERY_UPDATE_INTERVAL_HOURS
   int "Battery update interval in hours"
-  default 4
