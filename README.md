@@ -8,7 +8,7 @@ A low-power ZigBee sensor integrated with HomeAssistant for monitoring temperatu
   - Software: Zigbee sleepy end device
   - Measured: 3uA average over 1 minute (without CO2). 3mA average over 1 minute (with CO2 low-power mode)
 - Can be powered with 3V to 6V (JST connector), e.g. 350mAh li-poly.
-- Small footprint (5cm x 4,5cm)
+- Small footprint (3,5cm x 3cm )
 - Tested with [Home Assistant](https://www.home-assistant.io/) and [SkyConnect](https://www.home-assistant.io/skyconnect/)
 
 ## PCB
@@ -20,6 +20,12 @@ The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All re
 ## HomeAssistant
 
 ![image](https://github.com/user-attachments/assets/fe9de769-8348-4b40-8632-f8fcfae44b9a)
+
+## Case
+
+![image](https://github.com/user-attachments/assets/109c8689-d393-492c-b431-5e4256592e8a)
+![image](https://github.com/user-attachments/assets/0dd84a7b-14a9-4d71-ae2d-bca5665277f6)
+
 
 ## How to build?
 - Install VSCode + nRF plugins
