@@ -8,7 +8,7 @@ A low-power ZigBee sensor integrated with HomeAssistant for monitoring temperatu
   - Software: Zigbee sleepy end device
   - Measured: 3uA average over 1 minute (without CO2). 3mA average over 1 minute (with CO2 low-power mode)
 - Can be powered with 3V to 6V (JST connector), e.g. 350mAh li-poly.
-- Small footprint (4,5cm x )
+- Small footprint (3,5cm x 3cm )
 - Tested with [Home Assistant](https://www.home-assistant.io/) and [SkyConnect](https://www.home-assistant.io/skyconnect/)
 
 ## PCB
