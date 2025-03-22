@@ -28,13 +28,18 @@ static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MIN
 static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60 * 60; // HA minimum = 3600s
 static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
 
-#define ENABLE_SCD
+//#define ENABLE_SCD
 
 // ZigBee
 #define SCHNEGGI_ENDPOINT 0x01
 #define BULB_INIT_BASIC_MANUF_NAME "FuZZi"
 #define BULB_INIT_BASIC_MODEL_ID "Schneggi Sensor"
 #define BULB_INIT_BASIC_DATE_CODE "20240810"
+
+/* Forward declarations. */
+static void rejoin_the_network(zb_uint8_t param);
+static void start_network_rejoin(void);
+static void stop_network_rejoin(zb_uint8_t was_scheduled);
 
 typedef struct
 {
@@ -653,6 +658,7 @@ static void sensor_loop(zb_bufid_t bufid)
 	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
 }
 
+
 bool joining_signal_received = false;
 bool stack_initialised = false;
 
@@ -702,16 +708,13 @@ void zboss_signal_handler(zb_uint8_t param)
 
 			/* change data request timeout */
 			zb_zdo_pim_set_long_poll_interval(60000);
+
+			stop_network_rejoin(ZB_FALSE);
 		}
 		else
 		{
 			LOG_WRN("Failed to join network. Status: %d", status);
-
-			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-			if (comm_status != ZB_TRUE)
-			{
-				LOG_WRN("Commissioning error");
-			}
+			start_network_rejoin();
 		}
 
 		break;
@@ -783,9 +786,98 @@ void zboss_signal_handler(zb_uint8_t param)
 		break;
 	}
 
+	/* If configured, process network rejoin procedure. */
+	rejoin_the_network(0);
+
 	if (param)
 	{
 		zb_buf_free(param);
+	}
+}
+
+
+/* Maximum interval between join/rejoin attempts. */
+#define REJOIN_INTERVAL_MAX_S    (15 * 60)
+#ifndef ZB_DEV_REJOIN_TIMEOUT_MS
+#define ZB_DEV_REJOIN_TIMEOUT_MS (1000 * 200)
+#endif
+
+static bool is_rejoin_in_progress;
+static uint8_t rejoin_attempt_cnt;
+static bool is_rejoin_procedure_started;
+
+static void start_network_rejoin(void)
+{
+	if (!ZB_JOINED() && stack_initialised) {
+		LOG_INF("Start network rejoin");
+		
+		is_rejoin_in_progress = false;
+
+		if (!is_rejoin_procedure_started) {
+			is_rejoin_procedure_started = true;
+			is_rejoin_in_progress = false;
+			rejoin_attempt_cnt = 0;
+
+			LOG_INF("Started network rejoin procedure.");
+		}
+
+	} else {
+		LOG_ERR("Cannot start network rejoin");
+	}
+}
+
+static void start_network_steering(zb_uint8_t param)
+{
+	LOG_INF("Start network steering");
+	ZVUNUSED(param);
+	ZVUNUSED(bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING));
+}
+
+static void rejoin_the_network(zb_uint8_t param)
+{
+	ZVUNUSED(param);
+
+	if (!is_rejoin_in_progress) {
+
+		zb_ret_t zb_err_code;
+		zb_time_t timeout_s;
+
+		if ((1 << rejoin_attempt_cnt) > REJOIN_INTERVAL_MAX_S) {
+			timeout_s = REJOIN_INTERVAL_MAX_S;
+		} else {
+			timeout_s = (1 << rejoin_attempt_cnt);
+			rejoin_attempt_cnt++;
+		}
+
+		LOG_INF("Schedule network steering in %d", timeout_s);
+
+		zb_err_code = ZB_SCHEDULE_APP_ALARM(
+			start_network_steering,
+			ZB_FALSE,
+			ZB_MILLISECONDS_TO_BEACON_INTERVAL(timeout_s * 1000));
+
+		ZB_ERROR_CHECK(zb_err_code);
+		is_rejoin_in_progress = true;
+	}
+}
+
+static void stop_network_rejoin(zb_uint8_t was_scheduled)
+{
+	zb_ret_t zb_err_code;
+	
+	if (is_rejoin_procedure_started) {
+		zb_err_code = ZB_SCHEDULE_APP_ALARM_CANCEL(
+			start_network_steering,
+			ZB_ALARM_ANY_PARAM);
+			
+		if (zb_err_code == RET_OK) {
+			/* Stop rejoin procedure */
+			is_rejoin_procedure_started = false;
+			//is_rejoin_stop_requested = false;
+		} else {
+			/* Request rejoin procedure stop */
+			//is_rejoin_stop_requested = true;
+		}
 	}
 }
 
