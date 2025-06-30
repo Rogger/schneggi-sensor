@@ -498,7 +498,7 @@ static const struct battery_level_point discharge_curve[] = {
  * @return Positive integer with the battery level in percentage
  **/
 unsigned int battery_level_pptt(unsigned int batt_mV,
-								const struct battery_level_point *curve)
+								const struct battery_level_point *curve, size_t curve_size)
 {
 	const struct battery_level_point *pb = curve;
 
@@ -507,21 +507,18 @@ unsigned int battery_level_pptt(unsigned int batt_mV,
 		/* Measured voltage above highest point, cap at maximum. */
 		return pb->lvl_pptt;
 	}
-	/* Go down to the last point at or below the measured voltage. */
-	while ((pb->lvl_pptt > 0) && (batt_mV < pb->lvl_mV))
-	{
-		++pb;
-	}
-	if (batt_mV < pb->lvl_mV)
-	{
-		/* Below lowest point, cap at minimum */
-		return pb->lvl_pptt;
-	}
 
-	/* Linear interpolation between below and above points. */
-	const struct battery_level_point *pa = pb - 1;
+    for (size_t i = 1; i < curve_size; ++i) {
+        pb = &curve[i];
+        if (batt_mV >= pb->lvl_mV) {
+            /* Linear interpolation between below and above points. */
+            const struct battery_level_point *pa = pb - 1;
+            return pb->lvl_pptt + ((pa->lvl_pptt - pb->lvl_pptt) * (batt_mV - pb->lvl_mV) / (pa->lvl_mV - pb->lvl_mV));
+        }
+    }
 
-	return pb->lvl_pptt + ((pa->lvl_pptt - pb->lvl_pptt) * (batt_mV - pb->lvl_mV) / (pa->lvl_mV - pb->lvl_mV));
+	/* Below lowest point, cap at minimum */
+	return curve[curve_size - 1].lvl_pptt;
 }
 
 void update_battery()
@@ -573,7 +570,10 @@ void update_battery()
 		else
 		{
 
-			int32_t battery_voltage_mv = val_mv * (1500000 + 180000) / 180000;
+			#define VOLTAGE_DIVIDER_R1 1500000
+#define VOLTAGE_DIVIDER_R2 180000
+
+			int32_t battery_voltage_mv = val_mv * (VOLTAGE_DIVIDER_R1 + VOLTAGE_DIVIDER_R2) / VOLTAGE_DIVIDER_R2;
 
 			if (i == 0)
 			{
@@ -598,7 +598,7 @@ void update_battery()
 					return;
 				}
 
-				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve) / 100;
+				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve, ARRAY_SIZE(discharge_curve)) / 100;
 				uint8_t battery_percentage_attribute = (uint8_t)(battery_percentage * 2); // 3.3.2.2.3.2
 				LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x", battery_percentage, battery_percentage_attribute);
 				zb_zcl_status_t status_battery_percentage = zb_zcl_set_attr_val(
