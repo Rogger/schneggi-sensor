@@ -230,7 +230,7 @@ void init_scd4x_device(void)
 	}
 }
 
-void init_adc()
+static int init_adc(void)
 {
 	int err;
 	/* Configure channels individually prior to sampling. */
@@ -239,18 +239,25 @@ void init_adc()
 		if (!adc_is_ready_dt(&adc_channels[i]))
 		{
 			LOG_ERR("ADC controller device %s not ready", adc_channels[i].dev->name);
-			return;
+			return -ENODEV;
 		}
 
 		err = adc_channel_setup_dt(&adc_channels[i]);
 		if (err < 0)
 		{
 			LOG_ERR("Could not setup channel #%d (%d)", i, err);
-			return;
+			return err;
 		}
 	}
 
-	gpio_pin_configure_dt(&battery_monitor_enable, GPIO_OUTPUT);
+	err = gpio_pin_configure_dt(&battery_monitor_enable, GPIO_OUTPUT);
+	if (err < 0)
+	{
+		LOG_ERR("Failed to configure battery monitor enable pin (%d)", err);
+		return err;
+	}
+
+	return 0;
 }
 
 /**@brief Function for initializing all clusters attributes.
@@ -316,8 +323,17 @@ static void init_clusters_attr(void)
  */
 static void toggle_identify_led(zb_bufid_t bufid)
 {
-	gpio_pin_toggle_dt(&led_spec);
-	ZB_SCHEDULE_APP_ALARM(toggle_identify_led, bufid, ZB_MILLISECONDS_TO_BEACON_INTERVAL(100));
+	int err = gpio_pin_toggle_dt(&led_spec);
+	if (err < 0)
+	{
+		LOG_ERR("Failed to toggle LED (%d)", err);
+	}
+
+	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(toggle_identify_led, bufid, ZB_MILLISECONDS_TO_BEACON_INTERVAL(100));
+	if (ret != RET_OK)
+	{
+		LOG_ERR("Failed to schedule identify LED toggle");
+	}
 }
 
 /**@brief Function to handle identify notification events on the first endpoint.
@@ -331,7 +347,11 @@ static void identify_cb(zb_bufid_t bufid)
 	if (bufid)
 	{
 		LOG_INF("Start identify");
-		gpio_pin_set_dt(&led_spec, 1);
+		int err = gpio_pin_set_dt(&led_spec, 1);
+		if (err < 0)
+		{
+			LOG_ERR("Failed to set identify LED on (%d)", err);
+		}
 		/* Schedule a self-scheduling function that will toggle the LED. */
 		ZB_SCHEDULE_APP_CALLBACK(toggle_identify_led, bufid);
 	}
@@ -340,7 +360,11 @@ static void identify_cb(zb_bufid_t bufid)
 		LOG_INF("Stop identify");
 		/* Cancel the toggling function alarm and restore current Zigbee LED state. */
 		zb_err_code = ZB_SCHEDULE_APP_ALARM_CANCEL(toggle_identify_led, ZB_ALARM_ANY_PARAM);
-		gpio_pin_set_dt(&led_spec, 0);
+		int err = gpio_pin_set_dt(&led_spec, 0);
+		if (err < 0)
+		{
+			LOG_ERR("Failed to set identify LED off (%d)", err);
+		}
 		ZVUNUSED(zb_err_code);
 	}
 }
@@ -563,7 +587,12 @@ void update_battery()
 	int err;
 
 	// Enable battery measurement
-	gpio_pin_set_dt(&battery_monitor_enable, 1);
+	err = gpio_pin_set_dt(&battery_monitor_enable, 1);
+	if (err < 0)
+	{
+		LOG_ERR("Failed to enable battery monitor (%d)", err);
+		return;
+	}
 	k_sleep(K_MSEC(1));
 
 	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++)
@@ -651,7 +680,11 @@ void update_battery()
 	}
 out:
 	// Disable battery measurement
-	gpio_pin_set_dt(&battery_monitor_enable, 0);
+	err = gpio_pin_set_dt(&battery_monitor_enable, 0);
+	if (err < 0)
+	{
+		LOG_ERR("Failed to disable battery monitor (%d)", err);
+	}
 }
 
 static uint16_t cycles = 0;
@@ -726,14 +759,18 @@ void zboss_signal_handler(zb_uint8_t param)
 
 		joining_signal_received = true;
 
-		if (status == RET_OK)
-		{
-			LOG_INF("Joined network successfully!");
+			if (status == RET_OK)
+			{
+				LOG_INF("Joined network successfully!");
 
-			/* timeout for receiving data from sensor and voltage from battery */
-			ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
-			ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-								  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
+				/* timeout for receiving data from sensor and voltage from battery */
+				ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
+				zb_ret_t schedule_ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
+															  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
+				if (schedule_ret != RET_OK)
+				{
+					LOG_ERR("Unable to schedule the sensor loop after join");
+				}
 
 			/* change data request timeout */
 			zb_zdo_pim_set_long_poll_interval(60000);
@@ -829,6 +866,7 @@ void zboss_signal_handler(zb_uint8_t param)
 int main(void)
 {
 	LOG_INF("Schneggi sensor starting...");
+	int err;
 
 	init_shtc3_device();
 
@@ -836,9 +874,19 @@ int main(void)
 	init_scd4x_device();
 #endif
 
-	init_adc();
+	err = init_adc();
+	if (err < 0)
+	{
+		LOG_ERR("ADC init failed (%d)", err);
+		return err;
+	}
 
-	gpio_pin_configure_dt(&led_spec, GPIO_OUTPUT_INACTIVE);
+	err = gpio_pin_configure_dt(&led_spec, GPIO_OUTPUT_INACTIVE);
+	if (err < 0)
+	{
+		LOG_ERR("Failed to configure LED pin (%d)", err);
+		return err;
+	}
 
 	/* Power off unused sections of RAM to lower device power consumption. */
 	if (IS_ENABLED(CONFIG_RAM_POWER_DOWN_LIBRARY))
