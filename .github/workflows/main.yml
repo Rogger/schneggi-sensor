@@ -22,6 +22,11 @@ jobs:
           west init -l sensor
           west update -o=--depth=1 -n
 
+      - name: Install host compiler for logic tests
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends gcc libc6-dev
+
       - name: Run logic unit tests
         working-directory: sensor
         run: |
