@@ -24,6 +24,7 @@
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
+#include "sensor_logic.h"
 
 // Sleep
 static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60;				// HA minimum = 30s
@@ -476,18 +477,7 @@ void update_sensor_values()
 	{
 		LOG_INF("CO2: %.2f ppm", measured_co2);
 
-		if (measured_co2 < 0.0)
-		{
-			co2_attribute = 0;
-		}
-		else if (measured_co2 > ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE)
-		{
-			co2_attribute = ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE;
-		}
-		else
-		{
-			co2_attribute = (zb_uint16_t)measured_co2;
-		}
+		co2_attribute = co2_ppm_to_attr_u16(measured_co2, ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE);
 
 		zb_zcl_status_t status =
 			zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
@@ -503,23 +493,6 @@ void update_sensor_values()
 	}
 #endif
 }
-
-/** A point in a battery discharge curve sequence.
- *
- * A discharge curve is defined as a sequence of these points, where
- * the first point has #lvl_pptt set to 10000 and the last point has
- * #lvl_pptt set to zero.  Both #lvl_pptt and #lvl_mV should be
- * monotonic decreasing within the sequence.
- */
-struct battery_level_point
-{
-	/** Remaining life at #lvl_mV.
-	 * 100 % -> 10000 */
-	uint16_t lvl_pptt;
-
-	/** Battery voltage at #lvl_pptt remaining life. */
-	uint16_t lvl_mV;
-};
 
 /** Discharge curve for a li-poly battery
  *
@@ -548,39 +521,6 @@ static const struct battery_level_point discharge_curve[] = {
 	{0500, 3610},
 	{0, 3270},
 };
-
-/**
- * @brief calculate the battery percentage based on the battery discharge curve
- * @param batt_mV Battery level in millivolts
- * @param curve Pointer to the battery discharge curve struct
- * @return Positive integer with the battery level in percentage
- **/
-unsigned int battery_level_pptt(unsigned int batt_mV,
-								const struct battery_level_point *curve)
-{
-	const struct battery_level_point *pb = curve;
-
-	if (batt_mV >= pb->lvl_mV)
-	{
-		/* Measured voltage above highest point, cap at maximum. */
-		return pb->lvl_pptt;
-	}
-	/* Go down to the last point at or below the measured voltage. */
-	while ((pb->lvl_pptt > 0) && (batt_mV < pb->lvl_mV))
-	{
-		++pb;
-	}
-	if (batt_mV < pb->lvl_mV)
-	{
-		/* Below lowest point, cap at minimum */
-		return pb->lvl_pptt;
-	}
-
-	/* Linear interpolation between below and above points. */
-	const struct battery_level_point *pa = pb - 1;
-
-	return pb->lvl_pptt + ((pa->lvl_pptt - pb->lvl_pptt) * (batt_mV - pb->lvl_mV) / (pa->lvl_mV - pb->lvl_mV));
-}
 
 void update_battery()
 {

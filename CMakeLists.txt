@@ -10,7 +10,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project("Schneggi Sensor")
 
-FILE(GLOB_RECURSE app_sources ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+FILE(GLOB_RECURSE app_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
 target_sources(app PRIVATE ${app_sources})
 
 target_include_directories(app PRIVATE include)
