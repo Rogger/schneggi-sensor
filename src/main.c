@@ -14,6 +14,7 @@
 #include <zb_mem_config_med.h>
 #include <zigbee/zigbee_app_utils.h>
 #include <zigbee/zigbee_error_handler.h>
+#include <ram_pwrdn.h>
 #include <zb_nrf_platform.h>
 #include "nrf_802154.h"
 #include "zb_dimmable_light.h"
@@ -45,9 +46,9 @@ typedef struct
 
 typedef struct
 {
-	zb_int16_t measure_value;
-	zb_int16_t min_measure_value;
-	zb_int16_t max_measure_value;
+	zb_uint16_t measure_value;
+	zb_uint16_t min_measure_value;
+	zb_uint16_t max_measure_value;
 	zb_uint16_t tolerance;
 } zb_zcl_concentration_measurement_attrs_t;
 
@@ -302,7 +303,7 @@ static void init_clusters_attr(void)
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
 	dev_ctx.concentration_measure_attrs.max_measure_value =
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE; // 10 000ppm
-	dev_ctx.concentration_measure_attrs.tolerance = 0.0001f;	  // 100 ppm
+	dev_ctx.concentration_measure_attrs.tolerance = 100; // 100 ppm
 }
 
 /**@brief Function to toggle the identify LED
@@ -348,6 +349,12 @@ void update_sensor_values()
 	double measured_temperature = 0;
 	double measured_humidity = 0;
 	int st = 0;
+
+	if (shtc3 == NULL || !device_is_ready(shtc3))
+	{
+		LOG_ERR("SHTC3 device not ready");
+		return;
+	}
 
 	sensor_sample_fetch(shtc3);
 	st = sensor_channel_get(shtc3, SENSOR_CHAN_AMBIENT_TEMP, &temp);
@@ -407,6 +414,12 @@ void update_sensor_values()
 	}
 
 #ifdef ENABLE_SCD
+	if (scd == NULL || !device_is_ready(scd))
+	{
+		LOG_ERR("SCD4X device not ready");
+		return;
+	}
+
 	int err = sensor_sample_fetch(scd);
 	if (err)
 	{
@@ -415,7 +428,7 @@ void update_sensor_values()
 
 	err = 0;
 	double measured_co2 = 0.0;
-	float co2_attribute = 0.0;
+	zb_uint16_t co2_attribute = 0;
 
 	struct sensor_value sensor_value;
 	err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
@@ -428,8 +441,18 @@ void update_sensor_values()
 	{
 		LOG_INF("CO2: %.2f ppm", measured_co2);
 
-		/* Convert measured value to attribute value, as specified in ZCL */
-		co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
+		if (measured_co2 < 0.0)
+		{
+			co2_attribute = 0;
+		}
+		else if (measured_co2 > ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE)
+		{
+			co2_attribute = ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE;
+		}
+		else
+		{
+			co2_attribute = (zb_uint16_t)measured_co2;
+		}
 
 		zb_zcl_status_t status =
 			zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
@@ -572,7 +595,6 @@ void update_battery()
 		}
 		else
 		{
-
 			int32_t battery_voltage_mv = val_mv * (1500000 + 180000) / 180000;
 
 			if (i == 0)
@@ -580,7 +602,7 @@ void update_battery()
 				if (battery_voltage_mv < 0)
 				{
 					LOG_DBG("Not reporting negative voltage");
-					return;
+					goto out;
 				}
 
 				uint8_t battery_attribute = (uint8_t)(battery_voltage_mv / 100);
@@ -595,7 +617,7 @@ void update_battery()
 				if (status_battery_voltage)
 				{
 					LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
-					return;
+					goto out;
 				}
 
 				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve) / 100;
@@ -611,11 +633,12 @@ void update_battery()
 				if (status_battery_percentage)
 				{
 					LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
-					return;
+					goto out;
 				}
 			}
 		}
 	}
+out:
 	// Disable battery measurement
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
