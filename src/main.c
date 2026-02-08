@@ -7,6 +7,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/settings/settings.h>
+#include <zephyr/sys/util.h>
 #include <dk_buttons_and_leds.h>
 
 #include <zboss_api.h>
@@ -27,7 +28,10 @@
 // Sleep
 static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60;				// HA minimum = 30s
 static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60 * 60; // HA minimum = 3600s
-static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
+static const uint16_t BATTERY_SLEEP_CYCLES =
+	(BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS) > 0 ? (BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS) : 1;
+BUILD_ASSERT(CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES > 0, "CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES must be > 0");
+BUILD_ASSERT(CONFIG_BATTERY_UPDATE_INTERVAL_HOURS > 0, "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must be > 0");
 
 #define ENABLE_SCD
 
@@ -356,7 +360,13 @@ void update_sensor_values()
 		return;
 	}
 
-	sensor_sample_fetch(shtc3);
+	st = sensor_sample_fetch(shtc3);
+	if (st != 0)
+	{
+		LOG_ERR("Failed to fetch sample from SHTC3 device: %d", st);
+		return;
+	}
+
 	st = sensor_channel_get(shtc3, SENSOR_CHAN_AMBIENT_TEMP, &temp);
 
 	if (st == 0)
@@ -423,7 +433,8 @@ void update_sensor_values()
 	int err = sensor_sample_fetch(scd);
 	if (err)
 	{
-		LOG_ERR("Failed to fetch sample from SCD4X device");
+		LOG_ERR("Failed to fetch sample from SCD4X device: %d", err);
+		return;
 	}
 
 	err = 0;
@@ -688,13 +699,14 @@ void zboss_signal_handler(zb_uint8_t param)
 
 	switch (sig)
 	{
-	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
-		LOG_DBG("> SKIP_STARTUP");
+		case ZB_ZDO_SIGNAL_SKIP_STARTUP:
+			LOG_DBG("> SKIP_STARTUP");
 
 		LOG_DBG("ZigBee stack initialized. Start commissioning");
 		stack_initialised = true;
 
-		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
+			joining_signal_received = false;
+			comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
 		if (comm_status != ZB_TRUE)
 		{
 			LOG_WRN("Commissioning error");
@@ -726,14 +738,15 @@ void zboss_signal_handler(zb_uint8_t param)
 			/* change data request timeout */
 			zb_zdo_pim_set_long_poll_interval(60000);
 		}
-		else
-		{
-			LOG_WRN("Failed to join network. Status: %d", status);
-
-			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-			if (comm_status != ZB_TRUE)
+			else
 			{
-				LOG_WRN("Commissioning error");
+				LOG_WRN("Failed to join network. Status: %d", status);
+
+				joining_signal_received = false;
+				comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
+				if (comm_status != ZB_TRUE)
+				{
+					LOG_WRN("Commissioning error");
 			}
 		}
 
@@ -752,10 +765,11 @@ void zboss_signal_handler(zb_uint8_t param)
 				joining_signal_received = false;
 			}
 
-			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-			if (comm_status != ZB_TRUE)
-			{
-				LOG_WRN("Commissioning error");
+				joining_signal_received = false;
+				comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
+				if (comm_status != ZB_TRUE)
+				{
+					LOG_WRN("Commissioning error");
 			}
 		}
 		else
