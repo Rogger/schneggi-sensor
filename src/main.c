@@ -659,8 +659,7 @@ static void sensor_loop(zb_bufid_t bufid)
 	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
 }
 
-bool joining_signal_received = false;
-bool stack_initialised = false;
+static struct commissioning_state commissioning = {0};
 
 void zboss_signal_handler(zb_uint8_t param)
 {
@@ -674,13 +673,11 @@ void zboss_signal_handler(zb_uint8_t param)
 		case ZB_ZDO_SIGNAL_SKIP_STARTUP:
 			LOG_DBG("> SKIP_STARTUP");
 
-		LOG_DBG("ZigBee stack initialized. Start commissioning");
-		stack_initialised = true;
-
-			joining_signal_received = false;
+			LOG_DBG("ZigBee stack initialized. Start commissioning");
+			commissioning_on_skip_startup(&commissioning);
 			comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
-		if (comm_status != ZB_TRUE)
-		{
+			if (comm_status != ZB_TRUE)
+			{
 			LOG_WRN("Commissioning error");
 		}
 		break;
@@ -693,10 +690,9 @@ void zboss_signal_handler(zb_uint8_t param)
 		LOG_DBG("> DEVICE_REBOOT");
 		/* fall-through */
 
-	case ZB_BDB_SIGNAL_STEERING:
-		LOG_DBG("> STEERING");
-
-		joining_signal_received = true;
+		case ZB_BDB_SIGNAL_STEERING:
+			LOG_DBG("> STEERING");
+			commissioning_on_steering_result(&commissioning, status == RET_OK);
 
 			if (status == RET_OK)
 			{
@@ -717,8 +713,6 @@ void zboss_signal_handler(zb_uint8_t param)
 			else
 			{
 				LOG_WRN("Failed to join network. Status: %d", status);
-
-				joining_signal_received = false;
 				comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
 				if (comm_status != ZB_TRUE)
 				{
@@ -736,12 +730,12 @@ void zboss_signal_handler(zb_uint8_t param)
 			zb_zdo_signal_leave_params_t *p_leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_leave_params_t);
 			LOG_INF("Network left. Leave type: %d", p_leave_params->leave_type);
 
-			if (p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN)
-			{
-				joining_signal_received = false;
-			}
+				if (p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN)
+				{
+					commissioning_on_leave(&commissioning);
+				}
 
-				joining_signal_received = false;
+				commissioning_on_leave(&commissioning);
 				comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
 				if (comm_status != ZB_TRUE)
 				{
@@ -781,10 +775,10 @@ void zboss_signal_handler(zb_uint8_t param)
 		{
 			LOG_WRN("Parent link failure");
 
-			if (stack_initialised && !joining_signal_received)
-			{
-				LOG_WRN("Broken rejon procedure");
-				zb_reset(0);
+				if (commissioning_should_reset_on_parent_link_failure(&commissioning))
+				{
+					LOG_WRN("Broken rejon procedure");
+					zb_reset(0);
 			}
 		}
 		break;

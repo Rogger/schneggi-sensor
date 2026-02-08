@@ -59,3 +59,24 @@ uint16_t co2_ppm_to_attr_u16(double ppm, uint16_t max_value)
 
 	return (uint16_t)ppm;
 }
+
+void commissioning_on_skip_startup(struct commissioning_state *state)
+{
+	state->stack_initialised = true;
+	state->joining_signal_received = false;
+}
+
+void commissioning_on_steering_result(struct commissioning_state *state, bool success)
+{
+	state->joining_signal_received = success;
+}
+
+void commissioning_on_leave(struct commissioning_state *state)
+{
+	state->joining_signal_received = false;
+}
+
+bool commissioning_should_reset_on_parent_link_failure(const struct commissioning_state *state)
+{
+	return state->stack_initialised && !state->joining_signal_received;
+}

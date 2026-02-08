@@ -107,6 +107,30 @@ static void test_compute_battery_sleep_cycles(void)
 	assert_u32_eq(2, compute_battery_sleep_cycles(601U, 300U), "cycles_non_divisible_floor");
 }
 
+static void test_commissioning_state_transitions(void)
+{
+	struct commissioning_state state = {0};
+
+	assert_true(!commissioning_should_reset_on_parent_link_failure(&state), "comm_initial_no_reset");
+
+	commissioning_on_skip_startup(&state);
+	assert_true(state.stack_initialised, "comm_skip_sets_stack_initialized");
+	assert_true(!state.joining_signal_received, "comm_skip_clears_joining");
+	assert_true(commissioning_should_reset_on_parent_link_failure(&state), "comm_parent_fail_after_skip");
+
+	commissioning_on_steering_result(&state, true);
+	assert_true(state.joining_signal_received, "comm_steering_success_sets_joining");
+	assert_true(!commissioning_should_reset_on_parent_link_failure(&state), "comm_no_reset_when_joining");
+
+	commissioning_on_steering_result(&state, false);
+	assert_true(!state.joining_signal_received, "comm_steering_fail_clears_joining");
+	assert_true(commissioning_should_reset_on_parent_link_failure(&state), "comm_reset_after_steering_fail");
+
+	commissioning_on_leave(&state);
+	assert_true(!state.joining_signal_received, "comm_leave_clears_joining");
+	assert_true(commissioning_should_reset_on_parent_link_failure(&state), "comm_reset_after_leave");
+}
+
 int main(void)
 {
 	test_battery_level_pptt_interpolation();
@@ -114,6 +138,7 @@ int main(void)
 	test_battery_level_pptt_monotonicity();
 	test_co2_ppm_to_attr_u16();
 	test_compute_battery_sleep_cycles();
+	test_commissioning_state_transitions();
 	printf("All sensor_logic tests passed.\n");
 	return 0;
 }
