@@ -29,8 +29,7 @@
 // Sleep
 static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60;				// HA minimum = 30s
 static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60 * 60; // HA minimum = 3600s
-static const uint16_t BATTERY_SLEEP_CYCLES =
-	(BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS) > 0 ? (BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS) : 1;
+static uint16_t battery_sleep_cycles = 1;
 BUILD_ASSERT(CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES > 0, "CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES must be > 0");
 BUILD_ASSERT(CONFIG_BATTERY_UPDATE_INTERVAL_HOURS > 0, "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must be > 0");
 
@@ -633,7 +632,7 @@ static void sensor_loop(zb_bufid_t bufid)
 {
 	ZVUNUSED(bufid);
 
-	LOG_DBG("-- Loop %d / %d (%s)--", cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
+	LOG_DBG("-- Loop %d / %d (%s)--", cycles, battery_sleep_cycles, ZB_JOINED() ? "Connected" : "Disconnected");
 
 	ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
@@ -647,7 +646,7 @@ static void sensor_loop(zb_bufid_t bufid)
 	update_sensor_values();
 
 	/* Update battery on startup (cycles==0) or oncce BATTERY_SLEEP_CYCLES is reached*/
-	if (cycles == 0 || cycles == BATTERY_SLEEP_CYCLES)
+	if (cycles == 0 || cycles == battery_sleep_cycles)
 	{
 		update_battery();
 		cycles = 1;
@@ -827,6 +826,8 @@ int main(void)
 		LOG_ERR("Failed to configure LED pin (%d)", err);
 		return err;
 	}
+
+	battery_sleep_cycles = compute_battery_sleep_cycles(BATTERY_REPORT_INTERVAL_SECONDS, SLEEP_INTERVAL_SECONDS);
 
 	/* Power off unused sections of RAM to lower device power consumption. */
 	if (IS_ENABLED(CONFIG_RAM_POWER_DOWN_LIBRARY))

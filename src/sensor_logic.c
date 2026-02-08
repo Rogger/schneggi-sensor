@@ -24,6 +24,27 @@ unsigned int battery_level_pptt(unsigned int batt_mV, const struct battery_level
 	return pb->lvl_pptt + ((pa->lvl_pptt - pb->lvl_pptt) * (batt_mV - pb->lvl_mV) / (pa->lvl_mV - pb->lvl_mV));
 }
 
+uint16_t compute_battery_sleep_cycles(uint32_t battery_interval_seconds, uint32_t sleep_interval_seconds)
+{
+	if (sleep_interval_seconds == 0U)
+	{
+		return 1U;
+	}
+
+	uint32_t cycles = battery_interval_seconds / sleep_interval_seconds;
+	if (cycles == 0U)
+	{
+		return 1U;
+	}
+
+	if (cycles > UINT16_MAX)
+	{
+		return UINT16_MAX;
+	}
+
+	return (uint16_t)cycles;
+}
+
 uint16_t co2_ppm_to_attr_u16(double ppm, uint16_t max_value)
 {
 	if (ppm < 0.0)
