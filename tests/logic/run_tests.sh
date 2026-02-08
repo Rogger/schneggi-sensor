@@ -6,7 +6,22 @@ BUILD_DIR="${TMPDIR:-/tmp}/schneggi-sensor-tests"
 
 mkdir -p "${BUILD_DIR}"
 
-cc -std=c11 -Wall -Wextra -Werror \
+CC_BIN="${CC:-}"
+if [[ -z "${CC_BIN}" ]]; then
+  for candidate in gcc clang cc; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+      CC_BIN="${candidate}"
+      break
+    fi
+  done
+fi
+
+if [[ -z "${CC_BIN}" ]]; then
+  echo "No suitable C compiler found (tried: \$CC, gcc, clang, cc)" >&2
+  exit 127
+fi
+
+"${CC_BIN}" -std=c11 -Wall -Wextra -Werror \
   -I"${ROOT_DIR}/include" \
   "${ROOT_DIR}/src/sensor_logic.c" \
   "${ROOT_DIR}/tests/logic/test_sensor_logic.c" \
