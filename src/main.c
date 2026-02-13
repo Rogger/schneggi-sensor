@@ -36,6 +36,12 @@ static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / S
 #define BULB_INIT_BASIC_MODEL_ID "Schneggi Sensor"
 #define BULB_INIT_BASIC_DATE_CODE "20240810"
 
+/* Sleepy end-device connectivity tuning.
+ * Keep generous margin under ED aging timeout (32 min) to avoid rejoin churn.
+ */
+static const uint32_t ZB_LONG_POLL_INTERVAL_MS = 300000;  /* 5 min */
+static const uint32_t ZB_KEEPALIVE_INTERVAL_MS = 1200000; /* 20 min */
+
 typedef struct
 {
 	zb_int16_t measure_value;
@@ -697,14 +703,14 @@ void zboss_signal_handler(zb_uint8_t param)
 
 			/* timeout for receiving data from sensor and voltage from battery */
 			ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
-			ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-								  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
+				ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
+									  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
 
-			/* change data request timeout */
-			zb_zdo_pim_set_long_poll_interval(60000);
-		}
-		else
-		{
+				/* change data request timeout */
+				zb_zdo_pim_set_long_poll_interval(ZB_LONG_POLL_INTERVAL_MS);
+			}
+			else
+			{
 			LOG_WRN("Failed to join network. Status: %d", status);
 
 			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
@@ -820,8 +826,8 @@ int main(void)
 	LOG_INF("Enabled sleepy end device behavior.");
 
 	// https://developer.nordicsemi.com/nRF_Connect_SDK/doc/zboss/3.11.2.1/zigbee_prog_principles.html#zigbee_power_optimization_sleepy
-	zb_set_ed_timeout(ED_AGING_TIMEOUT_32MIN);
-	zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000));
+	zb_set_ed_timeout(ED_AGING_TIMEOUT_64MIN);
+	zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(ZB_KEEPALIVE_INTERVAL_MS));
 
 	ZB_AF_REGISTER_DEVICE_CTX(&device_ctx);
 
