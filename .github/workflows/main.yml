@@ -36,7 +36,7 @@ jobs:
       - name: Build debug release
         working-directory: sensor
         run: |
-          west build --build-dir $(pwd)/build $(pwd) --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=$(pwd) -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCACHED_CONF_FILE=$(pwd)/prj_debug.conf -DDTC_OVERLAY_FILE=$(pwd)/boards/adafruit_feather_nrf52840.overlay
+          west build --build-dir $(pwd)/build $(pwd) --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=$(pwd) -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCONF_FILE=$(pwd)/prj_debug.conf -DDTC_OVERLAY_FILE=$(pwd)/boards/adafruit_feather_nrf52840.overlay
       
       - name: Store debug release
         uses: actions/upload-artifact@v4
