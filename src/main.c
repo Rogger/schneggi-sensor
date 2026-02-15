@@ -680,19 +680,24 @@ void zboss_signal_handler(zb_uint8_t param)
 
 	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
 		LOG_DBG("> DEVICE_FIRST_START");
-		/* fall-through */
+		/* fall-through: (re)start steering below */
 
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
 		LOG_DBG("> DEVICE_REBOOT");
-		/* fall-through */
+		joining_signal_received = false;
+		comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
+		if (comm_status != ZB_TRUE)
+		{
+			LOG_WRN("Commissioning error");
+		}
+		break;
 
 	case ZB_BDB_SIGNAL_STEERING:
 		LOG_DBG("> STEERING");
 
-		joining_signal_received = true;
-
 		if (status == RET_OK)
 		{
+			joining_signal_received = true;
 			LOG_INF("Joined network successfully!");
 
 			/* timeout for receiving data from sensor and voltage from battery */
@@ -705,6 +710,7 @@ void zboss_signal_handler(zb_uint8_t param)
 		}
 		else
 		{
+			joining_signal_received = false;
 			LOG_WRN("Failed to join network. Status: %d", status);
 
 			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
