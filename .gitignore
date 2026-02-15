@@ -1,0 +1,11 @@
+# Local editor settings
+.vscode/
+
+# Local build outputs
+build/
+
+# KiCad temporary lock files
+*.kicad_sch.lck
+
+# Local KiCad backup archives/directories
+*-backups/
