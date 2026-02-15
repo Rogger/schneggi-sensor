@@ -742,6 +742,14 @@ void zboss_signal_handler(zb_uint8_t param)
 
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
 		LOG_DBG("> DEVICE_REBOOT");
+		if (status_ok)
+		{
+			LOG_INF("Joined network successfully on reboot.");
+		}
+		else
+		{
+			LOG_WRN("Reboot rejoin failed. Status: %d", status);
+		}
 		app_zigbee_handle_signal(&app_state,
 								 APP_ZIGBEE_SIGNAL_DEVICE_REBOOT,
 								 status_ok,

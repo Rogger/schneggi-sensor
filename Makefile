@@ -57,6 +57,6 @@ erase:
 	@$(NRFJPROG) -f NRF52 --snr $(SNR) --eraseall
 
 flash:
-	@$(NRFJPROG) -f NRF52 --snr $(SNR) --program $(HEX) --verify --reset
+	@$(NRFJPROG) -f NRF52 --snr $(SNR) --sectorerase --program $(HEX) --verify --reset
 
 erase-and-flash: erase flash

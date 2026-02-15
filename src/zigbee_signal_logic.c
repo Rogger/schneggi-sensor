@@ -29,9 +29,28 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 		break;
 
 	case APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START:
-	case APP_ZIGBEE_SIGNAL_DEVICE_REBOOT:
 		state->joining_signal_received = false;
-		actions->commissioning_mode = APP_COMMISSIONING_NETWORK_STEERING;
+		if (status_ok)
+		{
+			actions->commissioning_mode = APP_COMMISSIONING_NETWORK_STEERING;
+		}
+		break;
+
+	case APP_ZIGBEE_SIGNAL_DEVICE_REBOOT:
+		if (status_ok)
+		{
+			state->joining_signal_received = true;
+			actions->schedule_sensor_loop_cancel = true;
+			actions->schedule_sensor_loop = true;
+			actions->schedule_sensor_loop_delay_ms = 1000U;
+			actions->set_long_poll_interval = true;
+			actions->long_poll_interval_ms = 60000U;
+		}
+		else
+		{
+			state->joining_signal_received = false;
+			actions->commissioning_mode = APP_COMMISSIONING_NETWORK_STEERING;
+		}
 		break;
 
 	case APP_ZIGBEE_SIGNAL_STEERING:
