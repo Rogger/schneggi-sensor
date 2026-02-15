@@ -20,11 +20,12 @@ WEST_ENV = \
 	ZEPHYR_SDK_INSTALL_DIR="$(TOOLCHAIN_PATH)/opt/zephyr-sdk" \
 	CCACHE_DISABLE=1
 
-.PHONY: help build clean erase flash erase-and-flash
+.PHONY: help build test clean erase flash erase-and-flash
 
 help:
 	@echo "Targets:"
 	@echo "  make build            Build firmware into $(BUILD_DIR)"
+	@echo "  make test             Run host unit tests"
 	@echo "  make clean            Pristine-clean $(BUILD_DIR)"
 	@echo "  make erase            Erase chip (clears Zigbee NVRAM)"
 	@echo "  make flash            Flash $(HEX)"
@@ -39,6 +40,11 @@ build:
 		-DWEST_PYTHON="$(TOOLCHAIN_PATH)/usr/local/bin/python3.8" \
 		-DCONF_FILE="$(CONF_FILE)" \
 		-DDTC_OVERLAY_FILE="$(OVERLAY)"
+
+test:
+	@cmake -S tests/unit/zigbee_signal_logic -B tests/unit/zigbee_signal_logic/build
+	@cmake --build tests/unit/zigbee_signal_logic/build
+	@ctest --test-dir tests/unit/zigbee_signal_logic/build --output-on-failure
 
 clean:
 	@if [ -d "$(BUILD_DIR)" ]; then \

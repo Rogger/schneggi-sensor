@@ -22,6 +22,7 @@
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
+#include "zigbee_signal_logic.h"
 
 // Sleep
 static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60;				// HA minimum = 30s
@@ -656,99 +657,156 @@ static void sensor_loop(zb_bufid_t bufid)
 bool joining_signal_received = false;
 bool stack_initialised = false;
 
+static void execute_signal_actions(const struct app_zigbee_actions *actions)
+{
+	zb_bool_t comm_status = ZB_TRUE;
+
+	if (actions->commissioning_mode == APP_COMMISSIONING_INITIALIZATION)
+	{
+		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
+	}
+	else if (actions->commissioning_mode == APP_COMMISSIONING_NETWORK_STEERING)
+	{
+		comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
+	}
+
+	if (actions->commissioning_mode != APP_COMMISSIONING_NONE &&
+		comm_status != ZB_TRUE)
+	{
+		LOG_WRN("Commissioning error");
+	}
+
+	if (actions->schedule_sensor_loop_cancel)
+	{
+		ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
+	}
+
+	if (actions->schedule_sensor_loop)
+	{
+		ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
+							  ZB_MILLISECONDS_TO_BEACON_INTERVAL(actions->schedule_sensor_loop_delay_ms));
+	}
+
+	if (actions->set_long_poll_interval)
+	{
+		zb_zdo_pim_set_long_poll_interval(actions->long_poll_interval_ms);
+	}
+
+	if (actions->request_sleep)
+	{
+		zb_sleep_now();
+	}
+
+	if (actions->request_reset)
+	{
+		zb_reset(0);
+	}
+}
+
 void zboss_signal_handler(zb_uint8_t param)
 {
 	zb_zdo_app_signal_hdr_t *p_sg_p = NULL;
 	zb_zdo_app_signal_type_t sig = zb_get_app_signal(param, &p_sg_p);
 	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(param);
-	zb_bool_t comm_status;
+	struct app_zigbee_state app_state = {
+		.joining_signal_received = joining_signal_received,
+		.stack_initialised = stack_initialised,
+	};
+	struct app_zigbee_actions actions;
+	bool status_ok = (status == RET_OK);
 
 	switch (sig)
 	{
 	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
 		LOG_DBG("> SKIP_STARTUP");
-
 		LOG_DBG("ZigBee stack initialized. Start commissioning");
-		stack_initialised = true;
-
-		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
-		if (comm_status != ZB_TRUE)
-		{
-			LOG_WRN("Commissioning error");
-		}
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_SKIP_STARTUP,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
 		break;
 
 	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
 		LOG_DBG("> DEVICE_FIRST_START");
-		/* fall-through: (re)start steering below */
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
+		break;
 
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
 		LOG_DBG("> DEVICE_REBOOT");
-		joining_signal_received = false;
-		comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-		if (comm_status != ZB_TRUE)
-		{
-			LOG_WRN("Commissioning error");
-		}
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_DEVICE_REBOOT,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
 		break;
 
 	case ZB_BDB_SIGNAL_STEERING:
 		LOG_DBG("> STEERING");
 
-		if (status == RET_OK)
+		if (status_ok)
 		{
-			joining_signal_received = true;
 			LOG_INF("Joined network successfully!");
-
-			/* timeout for receiving data from sensor and voltage from battery */
-			ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
-			ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-								  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
-
-			/* change data request timeout */
-			zb_zdo_pim_set_long_poll_interval(60000);
 		}
 		else
 		{
-			joining_signal_received = false;
 			LOG_WRN("Failed to join network. Status: %d", status);
-
-			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-			if (comm_status != ZB_TRUE)
-			{
-				LOG_WRN("Commissioning error");
-			}
 		}
-
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_STEERING,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
 		break;
 
 	case ZB_ZDO_SIGNAL_LEAVE:
 		LOG_DBG("> LEAVE");
 
-		if (status == RET_OK)
+		if (status_ok)
 		{
 			zb_zdo_signal_leave_params_t *p_leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_leave_params_t);
 			LOG_INF("Network left. Leave type: %d", p_leave_params->leave_type);
-
-			if (p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN)
-			{
-				joining_signal_received = false;
-			}
-
-			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-			if (comm_status != ZB_TRUE)
-			{
-				LOG_WRN("Commissioning error");
-			}
+			app_zigbee_handle_signal(&app_state,
+									 APP_ZIGBEE_SIGNAL_LEAVE,
+									 status_ok,
+									 p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN,
+									 false,
+									 &actions);
+			execute_signal_actions(&actions);
 		}
 		else
 		{
 			LOG_ERR("Unable to leave network. Status: %d", status);
+			app_zigbee_handle_signal(&app_state,
+									 APP_ZIGBEE_SIGNAL_LEAVE,
+									 status_ok,
+									 false,
+									 false,
+									 &actions);
+			execute_signal_actions(&actions);
 		}
 		break;
 
 	case ZB_COMMON_SIGNAL_CAN_SLEEP:
-		zb_sleep_now();
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_CAN_SLEEP,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
 		break;
 
 	case ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
@@ -770,16 +828,23 @@ void zboss_signal_handler(zb_uint8_t param)
 
 		zb_zdo_signal_nlme_status_indication_params_t *nlme_status_ind =
 			ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_nlme_status_indication_params_t);
-		if (nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE)
+		bool parent_link_failure =
+			(nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE);
+		if (parent_link_failure)
 		{
 			LOG_WRN("Parent link failure");
-
-			if (stack_initialised && !joining_signal_received)
-			{
-				LOG_WRN("Broken rejon procedure");
-				zb_reset(0);
-			}
 		}
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION,
+								 status_ok,
+								 false,
+								 parent_link_failure,
+								 &actions);
+		if (actions.request_reset)
+		{
+			LOG_WRN("Broken rejon procedure");
+		}
+		execute_signal_actions(&actions);
 		break;
 	}
 
@@ -788,6 +853,9 @@ void zboss_signal_handler(zb_uint8_t param)
 		LOG_INF("Unhandled signal %d. Status: %d", sig, status);
 		break;
 	}
+
+	joining_signal_received = app_state.joining_signal_received;
+	stack_initialised = app_state.stack_initialised;
 
 	if (param)
 	{
