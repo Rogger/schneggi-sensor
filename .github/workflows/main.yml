@@ -23,12 +23,15 @@ jobs:
           west init -l sensor
           west update -o=--depth=1 -n
 
-      - name: Run unit tests
-        working-directory: sensor/tests/unit/zigbee_signal_logic
+      - name: Install host compiler for unit tests
         run: |
-          cmake -S . -B build
-          cmake --build build
-          ctest --test-dir build --output-on-failure
+          apt-get update
+          apt-get install -y --no-install-recommends gcc libc6-dev
+
+      - name: Run unit tests
+        working-directory: sensor
+        run: |
+          ./tests/unit/zigbee_signal_logic/run_tests.sh
 
       - name: Build debug release
         working-directory: sensor
