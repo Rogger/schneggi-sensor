@@ -10,6 +10,7 @@
 #include <zephyr/settings/settings.h>
 #include <zephyr/sys/util.h>
 #include <dk_buttons_and_leds.h>
+#include <ram_pwrdn.h>
 
 #include <zboss_api.h>
 #include <zboss_api_addons.h>
