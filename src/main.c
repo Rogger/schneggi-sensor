@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <soc.h>
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
@@ -7,7 +8,9 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/settings/settings.h>
+#include <zephyr/sys/util.h>
 #include <dk_buttons_and_leds.h>
+#include <ram_pwrdn.h>
 
 #include <zboss_api.h>
 #include <zboss_api_addons.h>
@@ -25,9 +28,15 @@
 #include "zigbee_signal_logic.h"
 
 // Sleep
-static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60;				// HA minimum = 30s
-static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60 * 60; // HA minimum = 3600s
-static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
+static const uint32_t SLEEP_INTERVAL_SECONDS = (uint32_t)CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60U;				   // HA minimum = 30s
+static const uint32_t BATTERY_REPORT_INTERVAL_SECONDS = (uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U; // HA minimum = 3600s
+static const uint32_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
+
+BUILD_ASSERT(CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES > 0, "CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES must be greater than zero");
+BUILD_ASSERT(CONFIG_BATTERY_UPDATE_INTERVAL_HOURS > 0, "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must be greater than zero");
+BUILD_ASSERT((uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U >=
+				 (uint32_t)CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60U,
+			 "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must not be shorter than CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES");
 
 #define ENABLE_SCD
 
@@ -46,9 +55,9 @@ typedef struct
 
 typedef struct
 {
-	zb_int16_t measure_value;
-	zb_int16_t min_measure_value;
-	zb_int16_t max_measure_value;
+	zb_uint16_t measure_value;
+	zb_uint16_t min_measure_value;
+	zb_uint16_t max_measure_value;
 	zb_uint16_t tolerance;
 } zb_zcl_concentration_measurement_attrs_t;
 
@@ -303,7 +312,7 @@ static void init_clusters_attr(void)
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
 	dev_ctx.concentration_measure_attrs.max_measure_value =
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE; // 10 000ppm
-	dev_ctx.concentration_measure_attrs.tolerance = 0.0001f;	  // 100 ppm
+	dev_ctx.concentration_measure_attrs.tolerance = 100;		  // 100 ppm
 }
 
 /**@brief Function to toggle the identify LED
@@ -430,7 +439,7 @@ void update_sensor_values()
 		else
 		{
 			double measured_co2 = 0.0;
-			float co2_attribute = 0.0f;
+			zb_uint16_t co2_attribute = 0;
 			struct sensor_value sensor_value;
 
 			err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
@@ -443,8 +452,20 @@ void update_sensor_values()
 				measured_co2 = sensor_value_to_double(&sensor_value);
 				LOG_INF("CO2: %.2f ppm", measured_co2);
 
-				/* Convert measured value to attribute value, as specified in ZCL */
-				co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
+				if (measured_co2 < 0.0)
+				{
+					LOG_WRN("CO2 reading below zero, clamping to zero");
+					co2_attribute = 0;
+				}
+				else if (measured_co2 > ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE)
+				{
+					LOG_WRN("CO2 reading above maximum supported value, clamping");
+					co2_attribute = ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE;
+				}
+				else
+				{
+					co2_attribute = (zb_uint16_t)(measured_co2 + 0.5);
+				}
 
 				zb_zcl_status_t status =
 					zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
@@ -596,7 +617,7 @@ void update_battery()
 				if (battery_voltage_mv < 0)
 				{
 					LOG_DBG("Not reporting negative voltage");
-					return;
+					goto cleanup;
 				}
 
 				uint8_t battery_attribute = (uint8_t)(battery_voltage_mv / 100);
@@ -611,7 +632,7 @@ void update_battery()
 				if (status_battery_voltage)
 				{
 					LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
-					return;
+					goto cleanup;
 				}
 
 				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve) / 100;
@@ -627,22 +648,23 @@ void update_battery()
 				if (status_battery_percentage)
 				{
 					LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
-					return;
+					goto cleanup;
 				}
 			}
 		}
 	}
+cleanup:
 	// Disable battery measurement
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
 
-static uint16_t cycles = 0;
+static uint32_t cycles = 0;
 
 static void sensor_loop(zb_bufid_t bufid)
 {
 	ZVUNUSED(bufid);
 
-	LOG_DBG("-- Loop %d / %d (%s)--", cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
+	LOG_DBG("-- Loop %" PRIu32 " / %" PRIu32 " (%s)--", cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
 
 	ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
@@ -666,7 +688,7 @@ static void sensor_loop(zb_bufid_t bufid)
 		cycles++;
 	}
 
-	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
+	LOG_DBG("Sleep for %" PRIu32 " seconds", SLEEP_INTERVAL_SECONDS);
 }
 
 bool joining_signal_received = false;

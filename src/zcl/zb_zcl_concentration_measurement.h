@@ -90,7 +90,7 @@ enum zb_zcl_concentration_measurement_attr_e
 #define ZB_ZCL_CONCENTRATION_MEASUREMENT_CLUSTER_REVISION_DEFAULT ((zb_uint16_t)0x0002u)
 
 /** @brief MeasuredValue attribute unknown value */
-#define ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_UNKNOWN        ((zb_uint32_t)0xFFFF)
+#define ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_UNKNOWN        ((zb_uint16_t)0xFFFF)
 
 /** @brief MinMeasuredValue attribute minimum value */
 #define ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MIN_VALUE  0x0000
@@ -111,13 +111,13 @@ enum zb_zcl_concentration_measurement_attr_e
 #define ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_UNDEFINED  0xFFFF
 
 /** @brief Default value for MeasurementValue attribute */
-#define ZB_ZCL_CONCENTRATION_MEASUREMENT_VALUE_DEFAULT_VALUE ((zb_uint32_t)0xFFFF)
+#define ZB_ZCL_CONCENTRATION_MEASUREMENT_VALUE_DEFAULT_VALUE ((zb_uint16_t)0xFFFF)
 
 /** @brief Default value for MeasurementMinValue attribute */
-#define ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE ((zb_uint32_t)0xFFFF)
+#define ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE ((zb_uint16_t)0xFFFF)
 
 /** @brief Default value for MeasurementMaxValue attribute */
-#define ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE ((zb_uint32_t)0xFFFF)
+#define ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE ((zb_uint16_t)0xFFFF)
 
 /** @brief Tolerance attribute minimum value */
 #define ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_TOLERANCE_MIN_VALUE            0x0000
@@ -134,7 +134,7 @@ enum zb_zcl_concentration_measurement_attr_e
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID(data_ptr) \
 {                                                               \
   ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,                \
-  ZB_ZCL_ATTR_TYPE_SINGLE,                                         \
+  ZB_ZCL_ATTR_TYPE_U16,                                         \
   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING,  \
   (void*) data_ptr                                         \
 }
@@ -142,7 +142,7 @@ enum zb_zcl_concentration_measurement_attr_e
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID(data_ptr) \
 {                                                       \
   ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID,    \
-  ZB_ZCL_ATTR_TYPE_SINGLE,                                 \
+  ZB_ZCL_ATTR_TYPE_U16,                                 \
   ZB_ZCL_ATTR_ACCESS_READ_ONLY,                         \
   (void*) data_ptr                                 \
 }
@@ -150,7 +150,7 @@ enum zb_zcl_concentration_measurement_attr_e
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID(data_ptr) \
 {                                                       \
   ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID,    \
-  ZB_ZCL_ATTR_TYPE_SINGLE,                                 \
+  ZB_ZCL_ATTR_TYPE_U16,                                 \
   ZB_ZCL_ATTR_ACCESS_READ_ONLY,                         \
   (void*) data_ptr                                 \
 }
@@ -158,7 +158,7 @@ enum zb_zcl_concentration_measurement_attr_e
 #define ZB_SET_ATTR_DESCR_WITH_ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_TOLERANCE_ID(data_ptr) \
 {                                                       \
   ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_TOLERANCE_ID,    \
-  ZB_ZCL_ATTR_TYPE_SINGLE,                                 \
+  ZB_ZCL_ATTR_TYPE_U16,                                 \
   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING,                         \
   (void*) data_ptr                                 \
 }
@@ -177,7 +177,7 @@ enum zb_zcl_concentration_measurement_attr_e
 */
 #define ZB_ZCL_DECLARE_CONCENTRATION_MEASUREMENT_ATTRIB_LIST(attr_list,          \
     value, min_value, max_value, tolerance)                                                \
-  ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(attr_list, ZB_ZCL_WATER_CONTENT_MEASUREMENT) \
+  ZB_ZCL_START_DECLARE_ATTRIB_LIST_CLUSTER_REVISION(attr_list, ZB_ZCL_CONCENTRATION_MEASUREMENT) \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID, (value))          \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID, (min_value))  \
   ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID, (max_value))  \

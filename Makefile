@@ -1,4 +1,5 @@
 TOOLCHAIN_PATH ?= /home/michael/ncs/toolchains/7795df4459
+TOOLCHAIN_PYTHON ?= $(TOOLCHAIN_PATH)/usr/local/bin/python3.8
 BUILD_DIR ?= build
 BOARD ?= adafruit_feather_nrf52840
 CONF_FILE ?= prj_debug.conf
@@ -20,7 +21,7 @@ WEST_ENV = \
 	ZEPHYR_SDK_INSTALL_DIR="$(TOOLCHAIN_PATH)/opt/zephyr-sdk" \
 	CCACHE_DISABLE=1
 
-.PHONY: help build test clean erase flash erase-and-flash
+.PHONY: help check-toolchain build test clean erase flash erase-and-flash
 
 help:
 	@echo "Targets:"
@@ -33,11 +34,27 @@ help:
 	@echo ""
 	@echo "Overrides:"
 	@echo "  SNR=<jlink_serial> BUILD_DIR=<dir> CONF_FILE=<file> OVERLAY=<file>"
+	@echo ""
+	@echo "Note: use 'make build' (not plain 'cmake --build build') so toolchain env is set correctly."
 
-build:
+check-toolchain:
+	@if [ ! -x "$(TOOLCHAIN_PYTHON)" ]; then \
+		echo "Toolchain python missing: $(TOOLCHAIN_PYTHON)"; \
+		echo "Set TOOLCHAIN_PATH to your NCS toolchain root."; \
+		exit 1; \
+	fi
+	@env LD_LIBRARY_PATH="$(TOOLCHAIN_PATH)/lib:$(TOOLCHAIN_PATH)/lib/x86_64-linux-gnu:$(TOOLCHAIN_PATH)/usr/local/lib:$${LD_LIBRARY_PATH:-}" \
+		PYTHONHOME="$(TOOLCHAIN_PATH)/usr/local" \
+		"$(TOOLCHAIN_PYTHON)" --version >/dev/null || { \
+		echo "Toolchain python could not start with current env."; \
+		echo "Use this Makefile targets to build, or fix TOOLCHAIN_PATH."; \
+		exit 1; \
+	}
+
+build: check-toolchain
 	@env $(WEST_ENV) $(WEST) build -d $(BUILD_DIR) -b $(BOARD) -- \
 		-DNCS_TOOLCHAIN_VERSION=NONE \
-		-DWEST_PYTHON="$(TOOLCHAIN_PATH)/usr/local/bin/python3.8" \
+		-DWEST_PYTHON="$(TOOLCHAIN_PYTHON)" \
 		-DCONF_FILE="$(CONF_FILE)" \
 		-DDTC_OVERLAY_FILE="$(OVERLAY)"
 
