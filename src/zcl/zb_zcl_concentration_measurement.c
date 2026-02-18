@@ -74,7 +74,7 @@ zb_ret_t check_value_concentration_measurement_server(zb_uint16_t attr_id, zb_ui
   switch( attr_id )
   {
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID:
-      if( ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_UNKNOWN == ZB_ZCL_ATTR_GET32(value) )
+      if( ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_UNKNOWN == ZB_ZCL_ATTR_GET16(value) )
       {
         ret = RET_OK;
       }
@@ -88,12 +88,12 @@ zb_ret_t check_value_concentration_measurement_server(zb_uint16_t attr_id, zb_ui
 
         ZB_ASSERT(attr_desc);
 
-        ret = (ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc) ==
+        ret = (ZB_ZCL_GET_ATTRIBUTE_VAL_16(attr_desc) ==
                 ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_UNDEFINED
-            || ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc) <= ZB_ZCL_ATTR_GET32(value))
+            || ZB_ZCL_GET_ATTRIBUTE_VAL_16(attr_desc) <= ZB_ZCL_ATTR_GET16(value))
           ? RET_OK : RET_ERROR;
 
-        if(ret)
+        if(ret == RET_OK)
         {
           attr_desc = zb_zcl_get_attr_desc_a(
               endpoint,
@@ -103,8 +103,8 @@ zb_ret_t check_value_concentration_measurement_server(zb_uint16_t attr_id, zb_ui
 
           ZB_ASSERT(attr_desc);
 
-          ret = ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc) == ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_UNDEFINED ||
-                ZB_ZCL_ATTR_GET32(value) <= ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc)
+          ret = ZB_ZCL_GET_ATTRIBUTE_VAL_16(attr_desc) == ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_UNDEFINED ||
+                ZB_ZCL_ATTR_GET16(value) <= ZB_ZCL_GET_ATTRIBUTE_VAL_16(attr_desc)
             ? RET_OK : RET_ERROR;
         }
       }
@@ -113,15 +113,15 @@ zb_ret_t check_value_concentration_measurement_server(zb_uint16_t attr_id, zb_ui
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID:
       ret = (
 #if ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MIN_VALUE != 0
-          ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MIN_VALUE <= ZB_ZCL_ATTR_GET32(value) &&
+          ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MIN_VALUE <= ZB_ZCL_ATTR_GET16(value) &&
 #endif
-              (ZB_ZCL_ATTR_GET32(value) <= ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MAX_VALUE) )
+              (ZB_ZCL_ATTR_GET16(value) <= ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MAX_VALUE) )
               ? RET_OK : RET_ERROR;
       break;
 
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID:
-      ret = ( (ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MIN_VALUE <= ZB_ZCL_ATTR_GET32(value)) &&
-              (ZB_ZCL_ATTR_GET32(value) <= ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE) )
+      ret = ( (ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MIN_VALUE <= ZB_ZCL_ATTR_GET16(value)) &&
+              (ZB_ZCL_ATTR_GET16(value) <= ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE) )
               ? RET_OK : RET_ERROR;
       break;
 
