@@ -343,105 +343,120 @@ static void identify_cb(zb_bufid_t bufid)
 
 void update_sensor_values()
 {
-	struct sensor_value temp, hum;
-	int16_t temperature_attribute = 0;
-	int16_t humidity_attribute = 0;
-	double measured_temperature = 0;
-	double measured_humidity = 0;
-	int st = 0;
+	int err = 0;
 
-	sensor_sample_fetch(shtc3);
-	st = sensor_channel_get(shtc3, SENSOR_CHAN_AMBIENT_TEMP, &temp);
-
-	if (st == 0)
+	if (shtc3 == NULL || !device_is_ready(shtc3))
 	{
-
-		measured_temperature = sensor_value_to_double(&temp);
-		temperature_attribute = (int16_t)(measured_temperature * 100);
-		LOG_INF("Temperature: %.2f °C", measured_temperature);
-
-		zb_zcl_status_t status = zb_zcl_set_attr_val(
-			SCHNEGGI_ENDPOINT,
-			ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
-			ZB_ZCL_CLUSTER_SERVER_ROLE,
-			ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
-			(zb_uint8_t *)&temperature_attribute,
-			ZB_FALSE);
-		if (status != ZB_ZCL_STATUS_SUCCESS)
-		{
-			LOG_ERR("Failed to set ZCL attribute: %d", status);
-			return;
-		}
+		LOG_WRN("SHTC3 device not ready, keeping previous values");
 	}
 	else
 	{
-		LOG_ERR("Failed to read temperature sensor: %d", st);
-		return;
-	}
-
-	st = sensor_channel_get(shtc3, SENSOR_CHAN_HUMIDITY, &hum);
-
-	if (st == 0)
-	{
-
-		measured_humidity = sensor_value_to_double(&hum);
-		humidity_attribute = (int16_t)(measured_humidity * 100);
-		LOG_INF("Humidity: %.2f RH", measured_humidity);
-
-		zb_zcl_status_t status = zb_zcl_set_attr_val(
-			SCHNEGGI_ENDPOINT,
-			ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
-			ZB_ZCL_CLUSTER_SERVER_ROLE,
-			ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
-			(zb_uint8_t *)&humidity_attribute,
-			ZB_FALSE);
-		if (status)
+		err = sensor_sample_fetch(shtc3);
+		if (err)
 		{
-			LOG_ERR("Failed to set ZCL attribute: %d", status);
-			return;
+			LOG_WRN("Failed to fetch sample from SHTC3: %d, keeping previous values", err);
 		}
-	}
-	else
-	{
-		LOG_ERR("Failed to read humidity sensor: %d", st);
-		return;
+		else
+		{
+			struct sensor_value temp;
+			struct sensor_value hum;
+			int16_t temperature_attribute = 0;
+			int16_t humidity_attribute = 0;
+			double measured_temperature = 0.0;
+			double measured_humidity = 0.0;
+			int st = sensor_channel_get(shtc3, SENSOR_CHAN_AMBIENT_TEMP, &temp);
+
+			if (st == 0)
+			{
+				measured_temperature = sensor_value_to_double(&temp);
+				temperature_attribute = (int16_t)(measured_temperature * 100);
+				LOG_INF("Temperature: %.2f °C", measured_temperature);
+
+				zb_zcl_status_t status = zb_zcl_set_attr_val(
+					SCHNEGGI_ENDPOINT,
+					ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+					ZB_ZCL_CLUSTER_SERVER_ROLE,
+					ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
+					(zb_uint8_t *)&temperature_attribute,
+					ZB_FALSE);
+				if (status != ZB_ZCL_STATUS_SUCCESS)
+				{
+					LOG_ERR("Failed to set temperature attribute: %d", status);
+				}
+			}
+			else
+			{
+				LOG_WRN("Failed to read temperature sensor: %d, keeping previous value", st);
+			}
+
+			st = sensor_channel_get(shtc3, SENSOR_CHAN_HUMIDITY, &hum);
+			if (st == 0)
+			{
+				measured_humidity = sensor_value_to_double(&hum);
+				humidity_attribute = (int16_t)(measured_humidity * 100);
+				LOG_INF("Humidity: %.2f RH", measured_humidity);
+
+				zb_zcl_status_t status = zb_zcl_set_attr_val(
+					SCHNEGGI_ENDPOINT,
+					ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+					ZB_ZCL_CLUSTER_SERVER_ROLE,
+					ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
+					(zb_uint8_t *)&humidity_attribute,
+					ZB_FALSE);
+				if (status != ZB_ZCL_STATUS_SUCCESS)
+				{
+					LOG_ERR("Failed to set humidity attribute: %d", status);
+				}
+			}
+			else
+			{
+				LOG_WRN("Failed to read humidity sensor: %d, keeping previous value", st);
+			}
+		}
 	}
 
 #ifdef ENABLE_SCD
-	int err = sensor_sample_fetch(scd);
-	if (err)
+	if (scd == NULL || !device_is_ready(scd))
 	{
-		LOG_ERR("Failed to fetch sample from SCD4X device");
-	}
-
-	err = 0;
-	double measured_co2 = 0.0;
-	float co2_attribute = 0.0;
-
-	struct sensor_value sensor_value;
-	err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
-	measured_co2 = sensor_value_to_double(&sensor_value);
-	if (err)
-	{
-		LOG_ERR("Failed to get sensor co2: %d", err);
+		LOG_WRN("SCD4X device not ready, keeping previous value");
 	}
 	else
 	{
-		LOG_INF("CO2: %.2f ppm", measured_co2);
-
-		/* Convert measured value to attribute value, as specified in ZCL */
-		co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
-
-		zb_zcl_status_t status =
-			zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
-								ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
-								ZB_ZCL_CLUSTER_SERVER_ROLE,
-								ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
-								(zb_uint8_t *)&co2_attribute, ZB_FALSE);
-		if (status)
+		err = sensor_sample_fetch(scd);
+		if (err)
 		{
-			LOG_ERR("Failed to set ZCL attribute: %d", status);
-			err = status;
+			LOG_WRN("Failed to fetch sample from SCD4X: %d, keeping previous value", err);
+		}
+		else
+		{
+			double measured_co2 = 0.0;
+			float co2_attribute = 0.0f;
+			struct sensor_value sensor_value;
+
+			err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
+			if (err)
+			{
+				LOG_WRN("Failed to get SCD4X CO2: %d, keeping previous value", err);
+			}
+			else
+			{
+				measured_co2 = sensor_value_to_double(&sensor_value);
+				LOG_INF("CO2: %.2f ppm", measured_co2);
+
+				/* Convert measured value to attribute value, as specified in ZCL */
+				co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
+
+				zb_zcl_status_t status =
+					zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
+										ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+										ZB_ZCL_CLUSTER_SERVER_ROLE,
+										ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
+										(zb_uint8_t *)&co2_attribute, ZB_FALSE);
+				if (status != ZB_ZCL_STATUS_SUCCESS)
+				{
+					LOG_ERR("Failed to set CO2 attribute: %d", status);
+				}
+			}
 		}
 	}
 #endif
