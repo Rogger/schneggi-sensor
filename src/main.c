@@ -55,10 +55,10 @@ typedef struct
 
 typedef struct
 {
-	zb_uint16_t measure_value;
-	zb_uint16_t min_measure_value;
-	zb_uint16_t max_measure_value;
-	zb_uint16_t tolerance;
+	zb_uint32_t measure_value;
+	zb_uint32_t min_measure_value;
+	zb_uint32_t max_measure_value;
+	zb_uint32_t tolerance;
 } zb_zcl_concentration_measurement_attrs_t;
 
 typedef struct
@@ -92,6 +92,17 @@ typedef struct
 } schneggi_device_ctx_t;
 
 static schneggi_device_ctx_t dev_ctx;
+
+static zb_uint32_t zcl_single_from_float(float value)
+{
+	union
+	{
+		float value_f;
+		zb_uint32_t value_u32;
+	} data = {.value_f = value};
+
+	return data.value_u32;
+}
 
 ZB_ZCL_DECLARE_BASIC_ATTRIB_LIST_EXT(
 	basic_attr_list,
@@ -312,7 +323,8 @@ static void init_clusters_attr(void)
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
 	dev_ctx.concentration_measure_attrs.max_measure_value =
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE; // 10 000ppm
-	dev_ctx.concentration_measure_attrs.tolerance = 100;		  // 100 ppm
+	dev_ctx.concentration_measure_attrs.tolerance =
+		zcl_single_from_float(100.0f * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER);
 }
 
 /**@brief Function to toggle the identify LED
@@ -439,7 +451,7 @@ void update_sensor_values()
 		else
 		{
 			double measured_co2 = 0.0;
-			zb_uint16_t co2_attribute = 0;
+			float co2_attribute = 0.0f;
 			struct sensor_value sensor_value;
 
 			err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
@@ -455,16 +467,17 @@ void update_sensor_values()
 				if (measured_co2 < 0.0)
 				{
 					LOG_WRN("CO2 reading below zero, clamping to zero");
-					co2_attribute = 0;
+					co2_attribute = 0.0f;
 				}
 				else if (measured_co2 > ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE)
 				{
 					LOG_WRN("CO2 reading above maximum supported value, clamping");
-					co2_attribute = ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE;
+					co2_attribute = ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE *
+									ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
 				}
 				else
 				{
-					co2_attribute = (zb_uint16_t)(measured_co2 + 0.5);
+					co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
 				}
 
 				zb_zcl_status_t status =
