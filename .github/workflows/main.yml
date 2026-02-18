@@ -1,6 +1,7 @@
 name: Build debug and release
 on:
   push:
+  pull_request:
 
 jobs:
   build-and-test-in-docker:
@@ -21,6 +22,16 @@ jobs:
         run: |
           west init -l sensor
           west update -o=--depth=1 -n
+
+      - name: Install host compiler for unit tests
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends gcc libc6-dev
+
+      - name: Run unit tests
+        working-directory: sensor
+        run: |
+          ./tests/unit/zigbee_signal_logic/run_tests.sh
 
       - name: Build debug release
         working-directory: sensor

@@ -22,6 +22,7 @@
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
+#include "zigbee_signal_logic.h"
 
 // Sleep
 static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60;				// HA minimum = 30s
@@ -342,105 +343,120 @@ static void identify_cb(zb_bufid_t bufid)
 
 void update_sensor_values()
 {
-	struct sensor_value temp, hum;
-	int16_t temperature_attribute = 0;
-	int16_t humidity_attribute = 0;
-	double measured_temperature = 0;
-	double measured_humidity = 0;
-	int st = 0;
+	int err = 0;
 
-	sensor_sample_fetch(shtc3);
-	st = sensor_channel_get(shtc3, SENSOR_CHAN_AMBIENT_TEMP, &temp);
-
-	if (st == 0)
+	if (shtc3 == NULL || !device_is_ready(shtc3))
 	{
-
-		measured_temperature = sensor_value_to_double(&temp);
-		temperature_attribute = (int16_t)(measured_temperature * 100);
-		LOG_INF("Temperature: %.2f °C", measured_temperature);
-
-		zb_zcl_status_t status = zb_zcl_set_attr_val(
-			SCHNEGGI_ENDPOINT,
-			ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
-			ZB_ZCL_CLUSTER_SERVER_ROLE,
-			ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
-			(zb_uint8_t *)&temperature_attribute,
-			ZB_FALSE);
-		if (status != ZB_ZCL_STATUS_SUCCESS)
-		{
-			LOG_ERR("Failed to set ZCL attribute: %d", status);
-			return;
-		}
+		LOG_WRN("SHTC3 device not ready, keeping previous values");
 	}
 	else
 	{
-		LOG_ERR("Failed to read temperature sensor: %d", st);
-		return;
-	}
-
-	st = sensor_channel_get(shtc3, SENSOR_CHAN_HUMIDITY, &hum);
-
-	if (st == 0)
-	{
-
-		measured_humidity = sensor_value_to_double(&hum);
-		humidity_attribute = (int16_t)(measured_humidity * 100);
-		LOG_INF("Humidity: %.2f RH", measured_humidity);
-
-		zb_zcl_status_t status = zb_zcl_set_attr_val(
-			SCHNEGGI_ENDPOINT,
-			ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
-			ZB_ZCL_CLUSTER_SERVER_ROLE,
-			ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
-			(zb_uint8_t *)&humidity_attribute,
-			ZB_FALSE);
-		if (status)
+		err = sensor_sample_fetch(shtc3);
+		if (err)
 		{
-			LOG_ERR("Failed to set ZCL attribute: %d", status);
-			return;
+			LOG_WRN("Failed to fetch sample from SHTC3: %d, keeping previous values", err);
 		}
-	}
-	else
-	{
-		LOG_ERR("Failed to read humidity sensor: %d", st);
-		return;
+		else
+		{
+			struct sensor_value temp;
+			struct sensor_value hum;
+			int16_t temperature_attribute = 0;
+			int16_t humidity_attribute = 0;
+			double measured_temperature = 0.0;
+			double measured_humidity = 0.0;
+			int st = sensor_channel_get(shtc3, SENSOR_CHAN_AMBIENT_TEMP, &temp);
+
+			if (st == 0)
+			{
+				measured_temperature = sensor_value_to_double(&temp);
+				temperature_attribute = (int16_t)(measured_temperature * 100);
+				LOG_INF("Temperature: %.2f °C", measured_temperature);
+
+				zb_zcl_status_t status = zb_zcl_set_attr_val(
+					SCHNEGGI_ENDPOINT,
+					ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+					ZB_ZCL_CLUSTER_SERVER_ROLE,
+					ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
+					(zb_uint8_t *)&temperature_attribute,
+					ZB_FALSE);
+				if (status != ZB_ZCL_STATUS_SUCCESS)
+				{
+					LOG_ERR("Failed to set temperature attribute: %d", status);
+				}
+			}
+			else
+			{
+				LOG_WRN("Failed to read temperature sensor: %d, keeping previous value", st);
+			}
+
+			st = sensor_channel_get(shtc3, SENSOR_CHAN_HUMIDITY, &hum);
+			if (st == 0)
+			{
+				measured_humidity = sensor_value_to_double(&hum);
+				humidity_attribute = (int16_t)(measured_humidity * 100);
+				LOG_INF("Humidity: %.2f RH", measured_humidity);
+
+				zb_zcl_status_t status = zb_zcl_set_attr_val(
+					SCHNEGGI_ENDPOINT,
+					ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+					ZB_ZCL_CLUSTER_SERVER_ROLE,
+					ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
+					(zb_uint8_t *)&humidity_attribute,
+					ZB_FALSE);
+				if (status != ZB_ZCL_STATUS_SUCCESS)
+				{
+					LOG_ERR("Failed to set humidity attribute: %d", status);
+				}
+			}
+			else
+			{
+				LOG_WRN("Failed to read humidity sensor: %d, keeping previous value", st);
+			}
+		}
 	}
 
 #ifdef ENABLE_SCD
-	int err = sensor_sample_fetch(scd);
-	if (err)
+	if (scd == NULL || !device_is_ready(scd))
 	{
-		LOG_ERR("Failed to fetch sample from SCD4X device");
-	}
-
-	err = 0;
-	double measured_co2 = 0.0;
-	float co2_attribute = 0.0;
-
-	struct sensor_value sensor_value;
-	err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
-	measured_co2 = sensor_value_to_double(&sensor_value);
-	if (err)
-	{
-		LOG_ERR("Failed to get sensor co2: %d", err);
+		LOG_WRN("SCD4X device not ready, keeping previous value");
 	}
 	else
 	{
-		LOG_INF("CO2: %.2f ppm", measured_co2);
-
-		/* Convert measured value to attribute value, as specified in ZCL */
-		co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
-
-		zb_zcl_status_t status =
-			zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
-								ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
-								ZB_ZCL_CLUSTER_SERVER_ROLE,
-								ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
-								(zb_uint8_t *)&co2_attribute, ZB_FALSE);
-		if (status)
+		err = sensor_sample_fetch(scd);
+		if (err)
 		{
-			LOG_ERR("Failed to set ZCL attribute: %d", status);
-			err = status;
+			LOG_WRN("Failed to fetch sample from SCD4X: %d, keeping previous value", err);
+		}
+		else
+		{
+			double measured_co2 = 0.0;
+			float co2_attribute = 0.0f;
+			struct sensor_value sensor_value;
+
+			err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
+			if (err)
+			{
+				LOG_WRN("Failed to get SCD4X CO2: %d, keeping previous value", err);
+			}
+			else
+			{
+				measured_co2 = sensor_value_to_double(&sensor_value);
+				LOG_INF("CO2: %.2f ppm", measured_co2);
+
+				/* Convert measured value to attribute value, as specified in ZCL */
+				co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
+
+				zb_zcl_status_t status =
+					zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
+										ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+										ZB_ZCL_CLUSTER_SERVER_ROLE,
+										ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
+										(zb_uint8_t *)&co2_attribute, ZB_FALSE);
+				if (status != ZB_ZCL_STATUS_SUCCESS)
+				{
+					LOG_ERR("Failed to set CO2 attribute: %d", status);
+				}
+			}
 		}
 	}
 #endif
@@ -656,93 +672,164 @@ static void sensor_loop(zb_bufid_t bufid)
 bool joining_signal_received = false;
 bool stack_initialised = false;
 
+static void execute_signal_actions(const struct app_zigbee_actions *actions)
+{
+	zb_bool_t comm_status = ZB_TRUE;
+
+	if (actions->commissioning_mode == APP_COMMISSIONING_INITIALIZATION)
+	{
+		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
+	}
+	else if (actions->commissioning_mode == APP_COMMISSIONING_NETWORK_STEERING)
+	{
+		comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
+	}
+
+	if (actions->commissioning_mode != APP_COMMISSIONING_NONE &&
+		comm_status != ZB_TRUE)
+	{
+		LOG_WRN("Commissioning error");
+	}
+
+	if (actions->schedule_sensor_loop_cancel)
+	{
+		ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
+	}
+
+	if (actions->schedule_sensor_loop)
+	{
+		ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
+							  ZB_MILLISECONDS_TO_BEACON_INTERVAL(actions->schedule_sensor_loop_delay_ms));
+	}
+
+	if (actions->set_long_poll_interval)
+	{
+		zb_zdo_pim_set_long_poll_interval(actions->long_poll_interval_ms);
+	}
+
+	if (actions->request_sleep)
+	{
+		zb_sleep_now();
+	}
+
+	if (actions->request_reset)
+	{
+		zb_reset(0);
+	}
+}
+
 void zboss_signal_handler(zb_uint8_t param)
 {
 	zb_zdo_app_signal_hdr_t *p_sg_p = NULL;
 	zb_zdo_app_signal_type_t sig = zb_get_app_signal(param, &p_sg_p);
 	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(param);
-	zb_bool_t comm_status;
+	struct app_zigbee_state app_state = {
+		.joining_signal_received = joining_signal_received,
+		.stack_initialised = stack_initialised,
+	};
+	struct app_zigbee_actions actions;
+	bool status_ok = (status == RET_OK);
 
 	switch (sig)
 	{
 	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
 		LOG_DBG("> SKIP_STARTUP");
-
 		LOG_DBG("ZigBee stack initialized. Start commissioning");
-		stack_initialised = true;
-
-		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
-		if (comm_status != ZB_TRUE)
-		{
-			LOG_WRN("Commissioning error");
-		}
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_SKIP_STARTUP,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
 		break;
 
 	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
 		LOG_DBG("> DEVICE_FIRST_START");
-		/* fall-through */
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
+		break;
 
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
 		LOG_DBG("> DEVICE_REBOOT");
-		/* fall-through */
+		if (status_ok)
+		{
+			LOG_INF("Joined network successfully on reboot.");
+		}
+		else
+		{
+			LOG_WRN("Reboot rejoin failed. Status: %d", status);
+		}
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_DEVICE_REBOOT,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
+		break;
 
 	case ZB_BDB_SIGNAL_STEERING:
 		LOG_DBG("> STEERING");
 
-		joining_signal_received = true;
-
-		if (status == RET_OK)
+		if (status_ok)
 		{
 			LOG_INF("Joined network successfully!");
-
-			/* timeout for receiving data from sensor and voltage from battery */
-			ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
-			ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-								  ZB_MILLISECONDS_TO_BEACON_INTERVAL(1000));
-
-			/* change data request timeout */
-			zb_zdo_pim_set_long_poll_interval(60000);
 		}
 		else
 		{
 			LOG_WRN("Failed to join network. Status: %d", status);
-
-			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-			if (comm_status != ZB_TRUE)
-			{
-				LOG_WRN("Commissioning error");
-			}
 		}
-
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_STEERING,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
 		break;
 
 	case ZB_ZDO_SIGNAL_LEAVE:
 		LOG_DBG("> LEAVE");
 
-		if (status == RET_OK)
+		if (status_ok)
 		{
 			zb_zdo_signal_leave_params_t *p_leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_leave_params_t);
 			LOG_INF("Network left. Leave type: %d", p_leave_params->leave_type);
-
-			if (p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN)
-			{
-				joining_signal_received = false;
-			}
-
-			comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
-			if (comm_status != ZB_TRUE)
-			{
-				LOG_WRN("Commissioning error");
-			}
+			app_zigbee_handle_signal(&app_state,
+									 APP_ZIGBEE_SIGNAL_LEAVE,
+									 status_ok,
+									 p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN,
+									 false,
+									 &actions);
+			execute_signal_actions(&actions);
 		}
 		else
 		{
 			LOG_ERR("Unable to leave network. Status: %d", status);
+			app_zigbee_handle_signal(&app_state,
+									 APP_ZIGBEE_SIGNAL_LEAVE,
+									 status_ok,
+									 false,
+									 false,
+									 &actions);
+			execute_signal_actions(&actions);
 		}
 		break;
 
 	case ZB_COMMON_SIGNAL_CAN_SLEEP:
-		zb_sleep_now();
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_CAN_SLEEP,
+								 status_ok,
+								 false,
+								 false,
+								 &actions);
+		execute_signal_actions(&actions);
 		break;
 
 	case ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
@@ -764,16 +851,23 @@ void zboss_signal_handler(zb_uint8_t param)
 
 		zb_zdo_signal_nlme_status_indication_params_t *nlme_status_ind =
 			ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_nlme_status_indication_params_t);
-		if (nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE)
+		bool parent_link_failure =
+			(nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE);
+		if (parent_link_failure)
 		{
 			LOG_WRN("Parent link failure");
-
-			if (stack_initialised && !joining_signal_received)
-			{
-				LOG_WRN("Broken rejon procedure");
-				zb_reset(0);
-			}
 		}
+		app_zigbee_handle_signal(&app_state,
+								 APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION,
+								 status_ok,
+								 false,
+								 parent_link_failure,
+								 &actions);
+		if (actions.request_reset)
+		{
+			LOG_WRN("Broken rejon procedure");
+		}
+		execute_signal_actions(&actions);
 		break;
 	}
 
@@ -782,6 +876,9 @@ void zboss_signal_handler(zb_uint8_t param)
 		LOG_INF("Unhandled signal %d. Status: %d", sig, status);
 		break;
 	}
+
+	joining_signal_received = app_state.joining_signal_received;
+	stack_initialised = app_state.stack_initialised;
 
 	if (param)
 	{
