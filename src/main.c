@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <soc.h>
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
@@ -26,12 +27,15 @@
 #include "zigbee_signal_logic.h"
 
 // Sleep
-static const uint16_t SLEEP_INTERVAL_SECONDS = CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60;				// HA minimum = 30s
-static const uint16_t BATTERY_REPORT_INTERVAL_SECONDS = CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60 * 60; // HA minimum = 3600s
-static const uint16_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
+static const uint32_t SLEEP_INTERVAL_SECONDS = (uint32_t)CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60U;				   // HA minimum = 30s
+static const uint32_t BATTERY_REPORT_INTERVAL_SECONDS = (uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U; // HA minimum = 3600s
+static const uint32_t BATTERY_SLEEP_CYCLES = BATTERY_REPORT_INTERVAL_SECONDS / SLEEP_INTERVAL_SECONDS;
 
 BUILD_ASSERT(CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES > 0, "CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES must be greater than zero");
 BUILD_ASSERT(CONFIG_BATTERY_UPDATE_INTERVAL_HOURS > 0, "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must be greater than zero");
+BUILD_ASSERT((uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U >=
+				 (uint32_t)CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60U,
+			 "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must not be shorter than CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES");
 
 #define ENABLE_SCD
 
@@ -653,13 +657,13 @@ cleanup:
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
 
-static uint16_t cycles = 0;
+static uint32_t cycles = 0;
 
 static void sensor_loop(zb_bufid_t bufid)
 {
 	ZVUNUSED(bufid);
 
-	LOG_DBG("-- Loop %d / %d (%s)--", cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
+	LOG_DBG("-- Loop %" PRIu32 " / %" PRIu32 " (%s)--", cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
 
 	ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
@@ -683,7 +687,7 @@ static void sensor_loop(zb_bufid_t bufid)
 		cycles++;
 	}
 
-	LOG_DBG("Sleep for %d seconds", SLEEP_INTERVAL_SECONDS);
+	LOG_DBG("Sleep for %" PRIu32 " seconds", SLEEP_INTERVAL_SECONDS);
 }
 
 bool joining_signal_received = false;
