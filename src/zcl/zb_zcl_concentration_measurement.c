@@ -47,6 +47,22 @@
 
 zb_ret_t check_value_concentration_measurement_server(zb_uint16_t attr_id, zb_uint8_t endpoint, zb_uint8_t *value);
 
+static zb_bool_t zcl_single_is_nan(zb_uint32_t raw)
+{
+  return ((raw & 0x7F800000u) == 0x7F800000u) && ((raw & 0x007FFFFFu) != 0u);
+}
+
+static float zcl_single_to_float(zb_uint32_t raw)
+{
+  union
+  {
+    zb_uint32_t raw_value;
+    float float_value;
+  } data = {.raw_value = raw};
+
+  return data.float_value;
+}
+
 void zb_zcl_concentration_init_server()
 {
   zb_zcl_add_cluster_handlers(ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
@@ -74,55 +90,123 @@ zb_ret_t check_value_concentration_measurement_server(zb_uint16_t attr_id, zb_ui
   switch( attr_id )
   {
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID:
-      if( ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_UNKNOWN == ZB_ZCL_ATTR_GET32(value) )
       {
-        ret = RET_OK;
-      }
-      else
-      {
+        zb_uint32_t measured_raw = ZB_ZCL_ATTR_GET32(value);
+        float measured_value = zcl_single_to_float(measured_raw);
+
+        if (zcl_single_is_nan(measured_raw))
+        {
+          ret = RET_OK;
+          break;
+        }
+
+        if (measured_value < 0.0f || measured_value > 1.0f)
+        {
+          ret = RET_ERROR;
+          break;
+        }
+
         zb_zcl_attr_t *attr_desc = zb_zcl_get_attr_desc_a(
             endpoint,
             ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
             ZB_ZCL_CLUSTER_SERVER_ROLE,
             ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID);
+        zb_uint32_t min_raw;
 
         ZB_ASSERT(attr_desc);
+        min_raw = ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc);
 
-        ret = (ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc) ==
-                ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_UNDEFINED
-            || ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc) <= ZB_ZCL_ATTR_GET32(value))
-          ? RET_OK : RET_ERROR;
-
-        if(ret == RET_OK)
+        if (!zcl_single_is_nan(min_raw) && measured_value < zcl_single_to_float(min_raw))
         {
-          attr_desc = zb_zcl_get_attr_desc_a(
-              endpoint,
-              ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
-              ZB_ZCL_CLUSTER_SERVER_ROLE,
-              ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID);
+          ret = RET_ERROR;
+          break;
+        }
 
-          ZB_ASSERT(attr_desc);
+        attr_desc = zb_zcl_get_attr_desc_a(
+            endpoint,
+            ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+            ZB_ZCL_CLUSTER_SERVER_ROLE,
+            ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID);
+        ZB_ASSERT(attr_desc);
 
-          ret = ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc) == ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_UNDEFINED ||
-                ZB_ZCL_ATTR_GET32(value) <= ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc)
-            ? RET_OK : RET_ERROR;
+        {
+          zb_uint32_t max_raw = ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc);
+
+          ret = (!zcl_single_is_nan(max_raw) && measured_value > zcl_single_to_float(max_raw))
+            ? RET_ERROR
+            : RET_OK;
         }
       }
       break;
 
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID:
-      ret = (
-#if ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MIN_VALUE != 0
-          ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MIN_VALUE <= ZB_ZCL_ATTR_GET32(value) &&
-#endif
-              (ZB_ZCL_ATTR_GET32(value) <= ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MAX_VALUE) )
-              ? RET_OK : RET_ERROR;
+      {
+        zb_uint32_t min_raw = ZB_ZCL_ATTR_GET32(value);
+        float min_value = zcl_single_to_float(min_raw);
+
+        if (zcl_single_is_nan(min_raw))
+        {
+          ret = RET_OK;
+          break;
+        }
+
+        if (min_value < 0.0f || min_value >= 1.0f)
+        {
+          ret = RET_ERROR;
+          break;
+        }
+
+        {
+          zb_zcl_attr_t *attr_desc = zb_zcl_get_attr_desc_a(
+              endpoint,
+              ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+              ZB_ZCL_CLUSTER_SERVER_ROLE,
+              ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID);
+          zb_uint32_t max_raw;
+
+          ZB_ASSERT(attr_desc);
+          max_raw = ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc);
+
+          ret = (!zcl_single_is_nan(max_raw) && !(min_value < zcl_single_to_float(max_raw)))
+            ? RET_ERROR
+            : RET_OK;
+        }
+      }
       break;
 
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID:
-      ret = ( (ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MIN_VALUE <= ZB_ZCL_ATTR_GET32(value)) &&
-              (ZB_ZCL_ATTR_GET32(value) <= ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE) )
-              ? RET_OK : RET_ERROR;
+      {
+        zb_uint32_t max_raw = ZB_ZCL_ATTR_GET32(value);
+        float max_value = zcl_single_to_float(max_raw);
+
+        if (zcl_single_is_nan(max_raw))
+        {
+          ret = RET_OK;
+          break;
+        }
+
+        if (max_value <= 0.0f || max_value > 1.0f)
+        {
+          ret = RET_ERROR;
+          break;
+        }
+
+        {
+          zb_zcl_attr_t *attr_desc = zb_zcl_get_attr_desc_a(
+              endpoint,
+              ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+              ZB_ZCL_CLUSTER_SERVER_ROLE,
+              ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID);
+          zb_uint32_t min_raw;
+
+          ZB_ASSERT(attr_desc);
+          min_raw = ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc);
+
+          ret = (!zcl_single_is_nan(min_raw) && !(zcl_single_to_float(min_raw) < max_value))
+            ? RET_ERROR
+            : RET_OK;
+        }
+      }
       break;
 
     default:

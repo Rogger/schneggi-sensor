@@ -45,6 +45,9 @@ BUILD_ASSERT((uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U >=
 #define BULB_INIT_BASIC_MANUF_NAME "FuZZi"
 #define BULB_INIT_BASIC_MODEL_ID "Schneggi Sensor"
 #define BULB_INIT_BASIC_DATE_CODE "20240810"
+#define ZCL_CO2_MEASUREMENT_MAX_FRACTION 1.0f
+#define ZCL_CO2_MEASUREMENT_MAX_PPM \
+	((double)ZCL_CO2_MEASUREMENT_MAX_FRACTION / ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER)
 
 typedef struct
 {
@@ -322,7 +325,7 @@ static void init_clusters_attr(void)
 	dev_ctx.concentration_measure_attrs.min_measure_value =
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
 	dev_ctx.concentration_measure_attrs.max_measure_value =
-		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE; // 10 000ppm
+		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE;
 	dev_ctx.concentration_measure_attrs.tolerance =
 		zcl_single_from_float(100.0f * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER);
 }
@@ -469,11 +472,11 @@ void update_sensor_values()
 					LOG_WRN("CO2 reading below zero, clamping to zero");
 					co2_attribute = 0.0f;
 				}
-				else if (measured_co2 > ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE)
+				else if (measured_co2 > ZCL_CO2_MEASUREMENT_MAX_PPM)
 				{
-					LOG_WRN("CO2 reading above maximum supported value, clamping");
-					co2_attribute = ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE *
-									ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
+					LOG_WRN("CO2 reading above maximum supported value (%.0f ppm), clamping",
+							ZCL_CO2_MEASUREMENT_MAX_PPM);
+					co2_attribute = ZCL_CO2_MEASUREMENT_MAX_FRACTION;
 				}
 				else
 				{
