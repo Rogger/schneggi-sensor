@@ -62,6 +62,9 @@ test:
 	@cmake -S tests/unit/zigbee_signal_logic -B tests/unit/zigbee_signal_logic/build
 	@cmake --build tests/unit/zigbee_signal_logic/build
 	@ctest --test-dir tests/unit/zigbee_signal_logic/build --output-on-failure
+	@cmake -S tests/unit/co2_zcl -B tests/unit/co2_zcl/build
+	@cmake --build tests/unit/co2_zcl/build
+	@ctest --test-dir tests/unit/co2_zcl/build --output-on-failure
 
 clean:
 	@if [ -d "$(BUILD_DIR)" ]; then \

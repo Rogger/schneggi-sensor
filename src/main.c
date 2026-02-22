@@ -25,6 +25,7 @@
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
+#include "co2_zcl_logic.h"
 #include "zigbee_signal_logic.h"
 
 // Sleep
@@ -45,9 +46,6 @@ BUILD_ASSERT((uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U >=
 #define BULB_INIT_BASIC_MANUF_NAME "FuZZi"
 #define BULB_INIT_BASIC_MODEL_ID "Schneggi Sensor"
 #define BULB_INIT_BASIC_DATE_CODE "20240810"
-#define ZCL_CO2_MEASUREMENT_MAX_FRACTION 1.0f
-#define ZCL_CO2_MEASUREMENT_MAX_PPM \
-	((double)ZCL_CO2_MEASUREMENT_MAX_FRACTION / ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER)
 
 typedef struct
 {
@@ -95,17 +93,6 @@ typedef struct
 } schneggi_device_ctx_t;
 
 static schneggi_device_ctx_t dev_ctx;
-
-static zb_uint32_t zcl_single_from_float(float value)
-{
-	union
-	{
-		float value_f;
-		zb_uint32_t value_u32;
-	} data = {.value_f = value};
-
-	return data.value_u32;
-}
 
 ZB_ZCL_DECLARE_BASIC_ATTRIB_LIST_EXT(
 	basic_attr_list,
@@ -327,7 +314,7 @@ static void init_clusters_attr(void)
 	dev_ctx.concentration_measure_attrs.max_measure_value =
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE;
 	dev_ctx.concentration_measure_attrs.tolerance =
-		zcl_single_from_float(100.0f * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER);
+		co2_zcl_single_from_float(co2_zcl_fraction_from_ppm(100.0));
 }
 
 /**@brief Function to toggle the identify LED
@@ -470,18 +457,13 @@ void update_sensor_values()
 				if (measured_co2 < 0.0)
 				{
 					LOG_WRN("CO2 reading below zero, clamping to zero");
-					co2_attribute = 0.0f;
 				}
-				else if (measured_co2 > ZCL_CO2_MEASUREMENT_MAX_PPM)
+				else if (measured_co2 > CO2_ZCL_MAX_PPM)
 				{
 					LOG_WRN("CO2 reading above maximum supported value (%.0f ppm), clamping",
-							ZCL_CO2_MEASUREMENT_MAX_PPM);
-					co2_attribute = ZCL_CO2_MEASUREMENT_MAX_FRACTION;
+							CO2_ZCL_MAX_PPM);
 				}
-				else
-				{
-					co2_attribute = measured_co2 * ZCL_CO2_MEASUREMENT_MEASURED_VALUE_MULTIPLIER;
-				}
+				co2_attribute = co2_zcl_fraction_from_ppm(measured_co2);
 
 				zb_zcl_status_t status =
 					zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
