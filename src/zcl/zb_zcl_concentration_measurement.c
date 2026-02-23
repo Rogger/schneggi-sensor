@@ -44,6 +44,7 @@
 #define ZB_TRACE_FILE_ID 12086
 
 #include "zb_zcl_concentration_measurement.h"
+#include "co2_zcl_logic.h"
 
 zb_ret_t check_value_concentration_measurement_server(zb_uint16_t attr_id, zb_uint8_t endpoint, zb_uint8_t *value);
 
@@ -74,55 +75,58 @@ zb_ret_t check_value_concentration_measurement_server(zb_uint16_t attr_id, zb_ui
   switch( attr_id )
   {
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID:
-      if( ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_UNKNOWN == ZB_ZCL_ATTR_GET16(value) )
       {
-        ret = RET_OK;
-      }
-      else
-      {
+        zb_uint32_t measured_raw = ZB_ZCL_ATTR_GET32(value);
         zb_zcl_attr_t *attr_desc = zb_zcl_get_attr_desc_a(
             endpoint,
             ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
             ZB_ZCL_CLUSTER_SERVER_ROLE,
             ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID);
+        zb_uint32_t min_raw;
 
         ZB_ASSERT(attr_desc);
+        min_raw = ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc);
 
-        ret = (ZB_ZCL_GET_ATTRIBUTE_VAL_16(attr_desc) ==
-                ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_UNDEFINED
-            || ZB_ZCL_GET_ATTRIBUTE_VAL_16(attr_desc) <= ZB_ZCL_ATTR_GET16(value))
-          ? RET_OK : RET_ERROR;
-
-        if(ret == RET_OK)
-        {
-          attr_desc = zb_zcl_get_attr_desc_a(
-              endpoint,
-              ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
-              ZB_ZCL_CLUSTER_SERVER_ROLE,
-              ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID);
-
-          ZB_ASSERT(attr_desc);
-
-          ret = ZB_ZCL_GET_ATTRIBUTE_VAL_16(attr_desc) == ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_UNDEFINED ||
-                ZB_ZCL_ATTR_GET16(value) <= ZB_ZCL_GET_ATTRIBUTE_VAL_16(attr_desc)
-            ? RET_OK : RET_ERROR;
-        }
+        attr_desc = zb_zcl_get_attr_desc_a(
+            endpoint,
+            ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+            ZB_ZCL_CLUSTER_SERVER_ROLE,
+            ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID);
+        ZB_ASSERT(attr_desc);
+        ret = co2_zcl_is_valid_measured_raw(measured_raw, min_raw, ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc))
+          ? RET_OK
+          : RET_ERROR;
       }
       break;
 
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID:
-      ret = (
-#if ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MIN_VALUE != 0
-          ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MIN_VALUE <= ZB_ZCL_ATTR_GET16(value) &&
-#endif
-              (ZB_ZCL_ATTR_GET16(value) <= ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_MAX_VALUE) )
-              ? RET_OK : RET_ERROR;
+      {
+        zb_uint32_t min_raw = ZB_ZCL_ATTR_GET32(value);
+        zb_zcl_attr_t *attr_desc = zb_zcl_get_attr_desc_a(
+            endpoint,
+            ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+            ZB_ZCL_CLUSTER_SERVER_ROLE,
+            ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID);
+        ZB_ASSERT(attr_desc);
+        ret = co2_zcl_is_valid_min_raw(min_raw, ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc))
+          ? RET_OK
+          : RET_ERROR;
+      }
       break;
 
     case ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID:
-      ret = ( (ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MIN_VALUE <= ZB_ZCL_ATTR_GET16(value)) &&
-              (ZB_ZCL_ATTR_GET16(value) <= ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE) )
-              ? RET_OK : RET_ERROR;
+      {
+        zb_uint32_t max_raw = ZB_ZCL_ATTR_GET32(value);
+        zb_zcl_attr_t *attr_desc = zb_zcl_get_attr_desc_a(
+            endpoint,
+            ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
+            ZB_ZCL_CLUSTER_SERVER_ROLE,
+            ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID);
+        ZB_ASSERT(attr_desc);
+        ret = co2_zcl_is_valid_max_raw(max_raw, ZB_ZCL_GET_ATTRIBUTE_VAL_32(attr_desc))
+          ? RET_OK
+          : RET_ERROR;
+      }
       break;
 
     default:

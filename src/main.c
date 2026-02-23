@@ -25,6 +25,7 @@
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
+#include "co2_zcl_logic.h"
 #include "zigbee_signal_logic.h"
 
 // Sleep
@@ -55,10 +56,10 @@ typedef struct
 
 typedef struct
 {
-	zb_uint16_t measure_value;
-	zb_uint16_t min_measure_value;
-	zb_uint16_t max_measure_value;
-	zb_uint16_t tolerance;
+	zb_uint32_t measure_value;
+	zb_uint32_t min_measure_value;
+	zb_uint32_t max_measure_value;
+	zb_uint32_t tolerance;
 } zb_zcl_concentration_measurement_attrs_t;
 
 typedef struct
@@ -311,8 +312,9 @@ static void init_clusters_attr(void)
 	dev_ctx.concentration_measure_attrs.min_measure_value =
 		ZB_ZCL_CONCENTRATION_MEASUREMENT_MIN_VALUE_DEFAULT_VALUE;
 	dev_ctx.concentration_measure_attrs.max_measure_value =
-		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE; // 10 000ppm
-	dev_ctx.concentration_measure_attrs.tolerance = 100;		  // 100 ppm
+		ZB_ZCL_CONCENTRATION_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE;
+	dev_ctx.concentration_measure_attrs.tolerance =
+		co2_zcl_single_from_float(co2_zcl_fraction_from_ppm(100.0));
 }
 
 /**@brief Function to toggle the identify LED
@@ -439,7 +441,7 @@ void update_sensor_values()
 		else
 		{
 			double measured_co2 = 0.0;
-			zb_uint16_t co2_attribute = 0;
+			float co2_attribute = 0.0f;
 			struct sensor_value sensor_value;
 
 			err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
@@ -455,17 +457,13 @@ void update_sensor_values()
 				if (measured_co2 < 0.0)
 				{
 					LOG_WRN("CO2 reading below zero, clamping to zero");
-					co2_attribute = 0;
 				}
-				else if (measured_co2 > ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE)
+				else if (measured_co2 > CO2_ZCL_MAX_PPM)
 				{
-					LOG_WRN("CO2 reading above maximum supported value, clamping");
-					co2_attribute = ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_MAX_VALUE;
+					LOG_WRN("CO2 reading above maximum supported value (%.0f ppm), clamping",
+							CO2_ZCL_MAX_PPM);
 				}
-				else
-				{
-					co2_attribute = (zb_uint16_t)(measured_co2 + 0.5);
-				}
+				co2_attribute = co2_zcl_fraction_from_ppm(measured_co2);
 
 				zb_zcl_status_t status =
 					zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
