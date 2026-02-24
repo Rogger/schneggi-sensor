@@ -44,7 +44,7 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 			actions->schedule_sensor_loop = true;
 			actions->schedule_sensor_loop_delay_ms = 1000U;
 			actions->set_long_poll_interval = true;
-			actions->long_poll_interval_ms = 60000U;
+			actions->long_poll_interval_ms = APP_ZIGBEE_LONG_POLL_INTERVAL_MS;
 		}
 		else
 		{
@@ -61,7 +61,7 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 			actions->schedule_sensor_loop = true;
 			actions->schedule_sensor_loop_delay_ms = 1000U;
 			actions->set_long_poll_interval = true;
-			actions->long_poll_interval_ms = 60000U;
+			actions->long_poll_interval_ms = APP_ZIGBEE_LONG_POLL_INTERVAL_MS;
 		}
 		else
 		{

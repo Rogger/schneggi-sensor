@@ -4,6 +4,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#if defined(CONFIG_ZIGBEE_LONG_POLL_INTERVAL_MS)
+#define APP_ZIGBEE_LONG_POLL_INTERVAL_MS ((uint32_t)CONFIG_ZIGBEE_LONG_POLL_INTERVAL_MS)
+#else
+#define APP_ZIGBEE_LONG_POLL_INTERVAL_MS (120000U)
+#endif
+
 enum app_zigbee_signal {
 	APP_ZIGBEE_SIGNAL_SKIP_STARTUP,
 	APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START,

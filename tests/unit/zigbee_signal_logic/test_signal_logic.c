@@ -57,7 +57,7 @@ static void test_device_reboot_success_marks_joined_and_does_not_restart_commiss
 	assert(actions.schedule_sensor_loop == true);
 	assert(actions.schedule_sensor_loop_delay_ms == 1000U);
 	assert(actions.set_long_poll_interval == true);
-	assert(actions.long_poll_interval_ms == 60000U);
+	assert(actions.long_poll_interval_ms == APP_ZIGBEE_LONG_POLL_INTERVAL_MS);
 }
 
 static void test_device_reboot_failure_restarts_commissioning(void)
@@ -91,7 +91,7 @@ static void test_steering_success_marks_connected_and_schedules_work(void)
 	assert(actions.schedule_sensor_loop == true);
 	assert(actions.schedule_sensor_loop_delay_ms == 1000U);
 	assert(actions.set_long_poll_interval == true);
-	assert(actions.long_poll_interval_ms == 60000U);
+	assert(actions.long_poll_interval_ms == APP_ZIGBEE_LONG_POLL_INTERVAL_MS);
 }
 
 static void test_steering_failure_clears_connected_and_retries(void)
