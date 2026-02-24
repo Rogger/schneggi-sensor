@@ -9,3 +9,13 @@ config BATTERY_UPDATE_INTERVAL_HOURS
   int "Battery update interval in hours"
   range 1 720
   default 4
+
+config ZIGBEE_LONG_POLL_INTERVAL_MS
+  int "Zigbee long poll interval in milliseconds"
+  range 30000 600000
+  default 120000
+
+config ZIGBEE_KEEPALIVE_TIMEOUT_MS
+  int "Zigbee keepalive timeout in milliseconds"
+  range 60000 1800000
+  default 600000
