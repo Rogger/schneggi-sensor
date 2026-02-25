@@ -31,7 +31,7 @@ jobs:
       - name: Run unit tests
         working-directory: sensor
         run: |
-          cmake -S tests/unit -B tests/unit/build
+          cmake -G Ninja -S tests/unit -B tests/unit/build
           cmake --build tests/unit/build
           ctest --test-dir tests/unit/build --output-on-failure
 
