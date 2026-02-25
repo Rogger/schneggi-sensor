@@ -32,6 +32,9 @@ jobs:
         working-directory: sensor
         run: |
           ./tests/unit/zigbee_signal_logic/run_tests.sh
+          cmake -S tests/unit/co2_zcl -B tests/unit/co2_zcl/build
+          cmake --build tests/unit/co2_zcl/build
+          ctest --test-dir tests/unit/co2_zcl/build --output-on-failure
 
       - name: Build debug release
         working-directory: sensor
