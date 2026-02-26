@@ -141,6 +141,7 @@ enum zb_zcl_concentration_measurement_attr_e
   ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,                \
   ZB_ZCL_ATTR_TYPE_SINGLE,                                         \
   ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING,  \
+  ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                             \
   (void*) data_ptr                                         \
 }
 
@@ -149,6 +150,7 @@ enum zb_zcl_concentration_measurement_attr_e
   ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MIN_VALUE_ID,    \
   ZB_ZCL_ATTR_TYPE_SINGLE,                                 \
   ZB_ZCL_ATTR_ACCESS_READ_ONLY,                         \
+  ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                     \
   (void*) data_ptr                                 \
 }
 
@@ -157,6 +159,7 @@ enum zb_zcl_concentration_measurement_attr_e
   ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_MAX_VALUE_ID,    \
   ZB_ZCL_ATTR_TYPE_SINGLE,                                 \
   ZB_ZCL_ATTR_ACCESS_READ_ONLY,                         \
+  ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                     \
   (void*) data_ptr                                 \
 }
 
@@ -164,7 +167,8 @@ enum zb_zcl_concentration_measurement_attr_e
 {                                                       \
   ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_TOLERANCE_ID,    \
   ZB_ZCL_ATTR_TYPE_SINGLE,                                 \
-  ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING,                         \
+  ZB_ZCL_ATTR_ACCESS_READ_ONLY | ZB_ZCL_ATTR_ACCESS_REPORTING, \
+  ZB_ZCL_NON_MANUFACTURER_SPECIFIC,                     \
   (void*) data_ptr                                 \
 }
 

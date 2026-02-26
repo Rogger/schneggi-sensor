@@ -44,7 +44,6 @@
 	shtcx@70 {
 		compatible = "sensirion,shtcx";
 		reg = <0x70>;
-		chip = "shtc3";
 		measure-mode = "normal"; // low power mode has reduced accuracy
 	};
 };

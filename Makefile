@@ -59,12 +59,9 @@ build: check-toolchain
 		-DDTC_OVERLAY_FILE="$(OVERLAY)"
 
 test:
-	@cmake -S tests/unit/zigbee_signal_logic -B tests/unit/zigbee_signal_logic/build
-	@cmake --build tests/unit/zigbee_signal_logic/build
-	@ctest --test-dir tests/unit/zigbee_signal_logic/build --output-on-failure
-	@cmake -S tests/unit/co2_zcl -B tests/unit/co2_zcl/build
-	@cmake --build tests/unit/co2_zcl/build
-	@ctest --test-dir tests/unit/co2_zcl/build --output-on-failure
+	@cmake -S tests/unit -B tests/unit/build
+	@cmake --build tests/unit/build
+	@ctest --test-dir tests/unit/build --output-on-failure
 
 clean:
 	@if [ -d "$(BUILD_DIR)" ]; then \

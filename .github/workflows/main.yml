@@ -6,7 +6,7 @@ on:
 jobs:
   build-and-test-in-docker:
     runs-on: ubuntu-22.04
-    container: ghcr.io/nrfconnect/sdk-nrf-toolchain:v2.6.99
+    container: ghcr.io/nrfconnect/sdk-nrf-toolchain:v2.9.2
     defaults:
       run:
         # Bash shell is needed to set toolchain related environment variables in docker container
@@ -31,12 +31,14 @@ jobs:
       - name: Run unit tests
         working-directory: sensor
         run: |
-          ./tests/unit/zigbee_signal_logic/run_tests.sh
+          cmake -G Ninja -S tests/unit -B tests/unit/build
+          cmake --build tests/unit/build
+          ctest --test-dir tests/unit/build --output-on-failure
 
       - name: Build debug release
         working-directory: sensor
         run: |
-          west build --build-dir $(pwd)/build $(pwd) --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=$(pwd) -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCACHED_CONF_FILE=$(pwd)/prj_debug.conf -DDTC_OVERLAY_FILE=$(pwd)/boards/adafruit_feather_nrf52840.overlay
+          west build --build-dir $(pwd)/build $(pwd) --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=$(pwd) -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCONF_FILE=$(pwd)/prj_debug.conf -DDTC_OVERLAY_FILE=$(pwd)/boards/adafruit_feather_nrf52840.overlay
       
       - name: Store debug release
         uses: actions/upload-artifact@v4
