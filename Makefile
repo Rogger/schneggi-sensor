@@ -10,7 +10,7 @@ TOOLCHAIN_PYTHON ?= $(firstword $(wildcard $(TOOLCHAIN_PATH)/usr/local/bin/pytho
 # --- Build config ---
 BOARD ?= adafruit_feather_nrf52840
 CONF_FILE ?= prj_debug.conf
-OVERLAY ?= boards/adafruit_feather_nrf52840.overlay
+OVERLAY ?= boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
 BUILD_DIR ?= build_west
 APP_DIR := $(CURDIR)
 NCS_WORKSPACE ?= $(if $(wildcard $(APP_DIR)/../.west),$(abspath $(APP_DIR)/..),$(shell find $$HOME/ncs -mindepth 1 -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort | tail -n1))
@@ -30,10 +30,10 @@ WEST_ENV = \
 	ZEPHYR_SDK_INSTALL_DIR="$(TOOLCHAIN_PATH)/opt/zephyr-sdk" \
 	CCACHE_DISABLE=1
 
-.PHONY: help check check-toolchain west-update build test clean erase flash erase-and-flash
+.PHONY: help check check-toolchain west-update build build-no-scd4x build-scd4x test clean erase flash erase-and-flash
 
 help:
-	@echo "Targets: west-update build test clean erase flash erase-and-flash"
+	@echo "Targets: west-update build build-no-scd4x build-scd4x test clean erase flash erase-and-flash"
 	@echo "Overrides: TOOLCHAIN_PATH TOOLCHAIN_PYTHON NCS_WORKSPACE BOARD CONF_FILE OVERLAY BUILD_DIR SNR"
 
 check:
@@ -54,6 +54,12 @@ build: check
 		-DWEST_PYTHON="$(TOOLCHAIN_PYTHON)" \
 		-DCONF_FILE="$(CONF_FILE)" \
 		-DDTC_OVERLAY_FILE="$(OVERLAY)"
+
+build-no-scd4x: OVERLAY=boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
+build-no-scd4x: build
+
+build-scd4x: OVERLAY=boards/adafruit_feather_nrf52840.overlay
+build-scd4x: build
 
 test:
 	@cmake -S tests/unit -B tests/unit/build
