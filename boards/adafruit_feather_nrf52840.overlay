@@ -114,6 +114,10 @@
 	status = "disabled";
 };
 
+&gd25q16 {
+	status = "disabled";
+};
+
 &led0 {
 	status = "disabled";
 };

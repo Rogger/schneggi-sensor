@@ -31,6 +31,8 @@ The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All re
 - Install VSCode + nRF plugins
 - Install nRF SDK and toolchain 2.5.2
 - Add a build configuration with custom board `adafruit_feather_nrf52840`
+- For hardware without the SCD4X CO2 sensor, add `-DEXTRA_CONF_FILE=prj_no_scd4x.conf`:
+  - Example: `west build -b adafruit_feather_nrf52840 -- -DCONF_FILE=prj_production.conf -DEXTRA_CONF_FILE=prj_no_scd4x.conf`
 
 ## Resources
 - The PCB design was inspired by [Getting Started With nRF52 MCU in a PCB](https://resources.altium.com/p/getting-started-nrf52-mcu-pcb#getting-started-schematics)

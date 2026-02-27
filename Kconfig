@@ -19,3 +19,11 @@ config ZIGBEE_KEEPALIVE_TIMEOUT_MS
   int "Zigbee keepalive timeout in milliseconds"
   range 60000 1800000
   default 600000
+
+config APP_ENABLE_SCD4X
+  bool "Enable SCD4X CO2 sensor support"
+  default y
+
+config APP_ZIGBEE_NVRAM_ERASE_ON_START
+  bool "Erase Zigbee NVRAM at startup"
+  default n

@@ -55,7 +55,9 @@ BUILD_ASSERT((uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U >=
 BUILD_ASSERT(APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS >= APP_ZIGBEE_LONG_POLL_INTERVAL_MS,
 			 "CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS must be >= CONFIG_ZIGBEE_LONG_POLL_INTERVAL_MS");
 
+#if IS_ENABLED(CONFIG_APP_ENABLE_SCD4X) && DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
 #define ENABLE_SCD
+#endif
 
 // ZigBee
 #define SCHNEGGI_ENDPOINT 0x01
@@ -212,11 +214,9 @@ struct adc_sequence sequence = {
 
 struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
 
-#if !DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
-#error "No sensirion,scd4x compatible node found in the device tree"
-#endif
-
+#ifdef ENABLE_SCD
 static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd4x);
+#endif
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
@@ -240,6 +240,7 @@ static void init_shtc3_device(void)
 	LOG_DBG("Found device %s.", shtc3->name);
 }
 
+#ifdef ENABLE_SCD
 void init_scd4x_device(void)
 {
 	if (scd == NULL || device_is_ready(scd) == false)
@@ -251,6 +252,7 @@ void init_scd4x_device(void)
 		LOG_DBG("Found device %s.", scd->name);
 	}
 }
+#endif
 
 void init_adc()
 {
@@ -930,6 +932,8 @@ int main(void)
 
 #ifdef ENABLE_SCD
 	init_scd4x_device();
+#else
+	LOG_INF("SCD4X disabled at build time");
 #endif
 
 	init_adc();
@@ -966,8 +970,8 @@ int main(void)
 
 	ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER(SCHNEGGI_ENDPOINT, identify_cb);
 
-	// Erase persistent storage
-	zb_set_nvram_erase_at_start(ZB_FALSE);
+	/* Optional troubleshooting switch to clear stale Zigbee NVRAM state. */
+	zb_set_nvram_erase_at_start(IS_ENABLED(CONFIG_APP_ZIGBEE_NVRAM_ERASE_ON_START) ? ZB_TRUE : ZB_FALSE);
 
 	zigbee_enable();
 
