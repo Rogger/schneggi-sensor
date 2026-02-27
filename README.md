@@ -27,10 +27,58 @@ The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All re
 ![image](https://github.com/user-attachments/assets/0dd84a7b-14a9-4d71-ae2d-bca5665277f6)
 
 
-## How to build?
-- Install VSCode + nRF plugins
-- Install nRF SDK and toolchain 2.5.2
-- Add a build configuration with custom board `adafruit_feather_nrf52840`
+## Build
+This project uses a **west workspace** (manifest in `west.yml`) and a local Makefile wrapper.
+
+### 1) One-time workspace setup
+From the project directory:
+
+```bash
+west init -l .
+cd ..
+west update
+```
+
+This initializes a west workspace in the parent directory and fetches all required modules
+(including `modules/sensirion_drivers` for SCD4X).
+
+### 2) Build
+
+```bash
+cd <project-dir>
+make build
+```
+
+Default output:
+- `build_west/merged.hex`
+- `build_west/schneggi-sensor/zephyr/zephyr.elf`
+
+### 3) Test (host unit tests)
+
+```bash
+make test
+```
+
+### 4) Flash
+
+```bash
+make flash
+```
+
+### Useful overrides
+
+```bash
+make build BUILD_DIR=build_debug
+make build CONF_FILE=prj_production.conf
+make flash SNR=<your_jlink_serial>
+```
+
+### Keep dependencies in sync
+After updating `west.yml`:
+
+```bash
+make west-update
+```
 
 ## Resources
 - The PCB design was inspired by [Getting Started With nRF52 MCU in a PCB](https://resources.altium.com/p/getting-started-nrf52-mcu-pcb#getting-started-schematics)
