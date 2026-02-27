@@ -1,58 +1,55 @@
-TOOLCHAIN_PATH ?= /home/michael/ncs/toolchains/7795df4459
-TOOLCHAIN_PYTHON ?= $(TOOLCHAIN_PATH)/usr/local/bin/python3.8
-BUILD_DIR ?= build
+# Minimal Makefile for Zephyr/NCS app builds
+
+# Optional local overrides (not committed)
+-include local.mk
+
+# --- Configurable paths ---
+TOOLCHAIN_PATH ?= $(shell find $$HOME/ncs/toolchains -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n1)
+TOOLCHAIN_PYTHON ?= $(firstword $(wildcard $(TOOLCHAIN_PATH)/usr/local/bin/python3.*) $(wildcard $(TOOLCHAIN_PATH)/usr/local/bin/python3))
+
+# --- Build config ---
 BOARD ?= adafruit_feather_nrf52840
 CONF_FILE ?= prj_debug.conf
 OVERLAY ?= boards/adafruit_feather_nrf52840.overlay
-SNR ?= 1050218947
-HEX ?= $(BUILD_DIR)/zephyr/merged.hex
+BUILD_DIR ?= build_west
+APP_DIR := $(CURDIR)
+NCS_WORKSPACE ?= $(if $(wildcard $(APP_DIR)/../.west),$(abspath $(APP_DIR)/..),$(shell find $$HOME/ncs -mindepth 1 -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort | tail -n1))
+BUILD_DIR_ABS := $(if $(filter /%,$(BUILD_DIR)),$(BUILD_DIR),$(APP_DIR)/$(BUILD_DIR))
+HEX ?= $(BUILD_DIR_ABS)/merged.hex
 
-WEST ?= west
+# --- Flash config ---
+SNR ?= 1050218947
 NRFJPROG ?= nrfjprog
+WEST ?= west
 
 WEST_ENV = \
-	PATH="$(TOOLCHAIN_PATH)/bin:$(TOOLCHAIN_PATH)/usr/bin:$(TOOLCHAIN_PATH)/usr/local/bin:$(TOOLCHAIN_PATH)/opt/bin:$(TOOLCHAIN_PATH)/opt/nanopb/generator-bin:$(TOOLCHAIN_PATH)/opt/zephyr-sdk/aarch64-zephyr-elf/bin:$(TOOLCHAIN_PATH)/opt/zephyr-sdk/x86_64-zephyr-elf/bin:$(TOOLCHAIN_PATH)/opt/zephyr-sdk/arm-zephyr-eabi/bin:$$PATH" \
+	PATH="$(TOOLCHAIN_PATH)/bin:$(TOOLCHAIN_PATH)/usr/bin:$(TOOLCHAIN_PATH)/usr/local/bin:$(TOOLCHAIN_PATH)/opt/bin:$$PATH" \
 	LD_LIBRARY_PATH="$(TOOLCHAIN_PATH)/lib:$(TOOLCHAIN_PATH)/lib/x86_64-linux-gnu:$(TOOLCHAIN_PATH)/usr/local/lib:$${LD_LIBRARY_PATH:-}" \
-	GIT_EXEC_PATH="$(TOOLCHAIN_PATH)/usr/local/libexec/git-core" \
-	GIT_TEMPLATE_DIR="$(TOOLCHAIN_PATH)/usr/local/share/git-core/templates" \
 	PYTHONHOME="$(TOOLCHAIN_PATH)/usr/local" \
-	PYTHONPATH="$(TOOLCHAIN_PATH)/usr/local/lib/python3.8:$(TOOLCHAIN_PATH)/usr/local/lib/python3.8/site-packages" \
 	ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
 	ZEPHYR_SDK_INSTALL_DIR="$(TOOLCHAIN_PATH)/opt/zephyr-sdk" \
 	CCACHE_DISABLE=1
 
-.PHONY: help check-toolchain build test clean erase flash erase-and-flash
+.PHONY: help check check-toolchain west-update build test clean erase flash erase-and-flash
 
 help:
-	@echo "Targets:"
-	@echo "  make build            Build firmware into $(BUILD_DIR)"
-	@echo "  make test             Run host unit tests"
-	@echo "  make clean            Pristine-clean $(BUILD_DIR)"
-	@echo "  make erase            Erase chip (clears Zigbee NVRAM)"
-	@echo "  make flash            Flash $(HEX)"
-	@echo "  make erase-and-flash  Erase, then flash"
-	@echo ""
-	@echo "Overrides:"
-	@echo "  SNR=<jlink_serial> BUILD_DIR=<dir> CONF_FILE=<file> OVERLAY=<file>"
-	@echo ""
-	@echo "Note: use 'make build' (not plain 'cmake --build build') so toolchain env is set correctly."
+	@echo "Targets: west-update build test clean erase flash erase-and-flash"
+	@echo "Overrides: TOOLCHAIN_PATH TOOLCHAIN_PYTHON NCS_WORKSPACE BOARD CONF_FILE OVERLAY BUILD_DIR SNR"
 
-check-toolchain:
-	@if [ ! -x "$(TOOLCHAIN_PYTHON)" ]; then \
-		echo "Toolchain python missing: $(TOOLCHAIN_PYTHON)"; \
-		echo "Set TOOLCHAIN_PATH to your NCS toolchain root."; \
-		exit 1; \
-	fi
-	@env LD_LIBRARY_PATH="$(TOOLCHAIN_PATH)/lib:$(TOOLCHAIN_PATH)/lib/x86_64-linux-gnu:$(TOOLCHAIN_PATH)/usr/local/lib:$${LD_LIBRARY_PATH:-}" \
-		PYTHONHOME="$(TOOLCHAIN_PATH)/usr/local" \
-		"$(TOOLCHAIN_PYTHON)" --version >/dev/null || { \
-		echo "Toolchain python could not start with current env."; \
-		echo "Use this Makefile targets to build, or fix TOOLCHAIN_PATH."; \
-		exit 1; \
-	}
+check:
+	@test -x "$(TOOLCHAIN_PYTHON)" || (echo "Missing TOOLCHAIN_PYTHON: $(TOOLCHAIN_PYTHON)"; exit 1)
+	@test -d "$(NCS_WORKSPACE)/.west" || (echo "Invalid NCS_WORKSPACE: $(NCS_WORKSPACE)"; exit 1)
+	@test -d "$(NCS_WORKSPACE)/zephyr" || (echo "Missing zephyr dir in NCS_WORKSPACE"; exit 1)
+	@test -d "$(NCS_WORKSPACE)/modules/sensirion_drivers" || (echo "Missing SCD4X module in workspace. Run: make west-update"; exit 1)
 
-build: check-toolchain
-	@env $(WEST_ENV) $(WEST) build -d $(BUILD_DIR) -b $(BOARD) -- \
+check-toolchain: check
+
+west-update: check-toolchain
+	@cd "$(NCS_WORKSPACE)" && env $(WEST_ENV) $(WEST) update
+
+build: check
+	@cd "$(NCS_WORKSPACE)" && env $(WEST_ENV) $(WEST) build \
+		-s "$(APP_DIR)" -d "$(BUILD_DIR_ABS)" -b "$(BOARD)" -- \
 		-DNCS_TOOLCHAIN_VERSION=NONE \
 		-DWEST_PYTHON="$(TOOLCHAIN_PYTHON)" \
 		-DCONF_FILE="$(CONF_FILE)" \
@@ -64,16 +61,16 @@ test:
 	@ctest --test-dir tests/unit/build --output-on-failure
 
 clean:
-	@if [ -d "$(BUILD_DIR)" ]; then \
-		env $(WEST_ENV) $(WEST) build -d $(BUILD_DIR) -t pristine; \
+	@if [ -d "$(BUILD_DIR_ABS)" ]; then \
+		cd "$(NCS_WORKSPACE)" && env $(WEST_ENV) $(WEST) build -s "$(APP_DIR)" -d "$(BUILD_DIR_ABS)" -t pristine; \
 	else \
-		echo "$(BUILD_DIR) does not exist, nothing to clean."; \
+		echo "$(BUILD_DIR_ABS) does not exist, nothing to clean."; \
 	fi
 
 erase:
 	@$(NRFJPROG) -f NRF52 --snr $(SNR) --eraseall
 
 flash:
-	@$(NRFJPROG) -f NRF52 --snr $(SNR) --sectorerase --program $(HEX) --verify --reset
+	@$(NRFJPROG) -f NRF52 --snr $(SNR) --sectorerase --program "$(HEX)" --verify --reset
 
 erase-and-flash: erase flash
