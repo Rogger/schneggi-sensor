@@ -55,7 +55,7 @@ BUILD_ASSERT((uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U >=
 BUILD_ASSERT(APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS >= APP_ZIGBEE_LONG_POLL_INTERVAL_MS,
 			 "CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS must be >= CONFIG_ZIGBEE_LONG_POLL_INTERVAL_MS");
 
-#define ENABLE_SCD
+#define APP_HAS_SCD4X DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
 
 // ZigBee
 #define SCHNEGGI_ENDPOINT 0x01
@@ -141,11 +141,13 @@ ZB_ZCL_DECLARE_REL_HUMIDITY_MEASUREMENT_ATTRIB_LIST(
 	&dev_ctx.humidity_measure_attrs.min_measure_value,
 	&dev_ctx.humidity_measure_attrs.max_measure_value);
 
+#if APP_HAS_SCD4X
 ZB_ZCL_DECLARE_CONCENTRATION_MEASUREMENT_ATTRIB_LIST(concentration_measurement_attr_list,
 													 &dev_ctx.concentration_measure_attrs.measure_value,
 													 &dev_ctx.concentration_measure_attrs.min_measure_value,
 													 &dev_ctx.concentration_measure_attrs.max_measure_value,
 													 &dev_ctx.concentration_measure_attrs.tolerance);
+#endif
 
 /* Define 'bat_num' as empty in order to declare default battery set attributes. */
 /* According to Table 3-17 of ZCL specification, defining 'bat_num' as 2 or 3 allows */
@@ -170,6 +172,7 @@ ZB_ZCL_DECLARE_POWER_CONFIG_BATTERY_ATTRIB_LIST_EXT(
 	&dev_ctx.power_config_attr.battery_percentage_threshold3,
 	&dev_ctx.power_config_attr.battery_alarm_state);
 
+#if APP_HAS_SCD4X
 ZB_DECLARE_DIMMABLE_LIGHT_CLUSTER_LIST(
 	dimmable_light_clusters,
 	basic_attr_list,
@@ -179,10 +182,24 @@ ZB_DECLARE_DIMMABLE_LIGHT_CLUSTER_LIST(
 	concentration_measurement_attr_list,
 	power_config_attr_list);
 
-ZB_DECLARE_DIMMABLE_LIGHT_EP(
+ZB_DECLARE_DIMMABLE_LIGHT_EP_WITH_CO2(
 	schneggi_ep,
 	SCHNEGGI_ENDPOINT,
 	dimmable_light_clusters);
+#else
+ZB_DECLARE_DIMMABLE_LIGHT_CLUSTER_LIST_NO_CO2(
+	dimmable_light_clusters,
+	basic_attr_list,
+	identify_attr_list,
+	temp_measurement_attr_list,
+	humidity_measurement_attr_list,
+	power_config_attr_list);
+
+ZB_DECLARE_DIMMABLE_LIGHT_EP_NO_CO2(
+	schneggi_ep,
+	SCHNEGGI_ENDPOINT,
+	dimmable_light_clusters);
+#endif
 
 ZBOSS_DECLARE_DEVICE_CTX_1_EP(
 	device_ctx,
@@ -212,11 +229,11 @@ struct adc_sequence sequence = {
 
 struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
 
-#if !DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
-#error "No sensirion,scd4x compatible node found in the device tree"
-#endif
-
+#if APP_HAS_SCD4X
 static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd4x);
+#else
+static const struct device *scd;
+#endif
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
@@ -242,6 +259,12 @@ static void init_shtc3_device(void)
 
 void init_scd4x_device(void)
 {
+	if (!APP_HAS_SCD4X)
+	{
+		LOG_INF("SCD4X disabled by devicetree");
+		return;
+	}
+
 	if (scd == NULL || device_is_ready(scd) == false)
 	{
 		LOG_ERR("Failed to initialize SCD4X device");
@@ -442,7 +465,7 @@ void update_sensor_values()
 		}
 	}
 
-#ifdef ENABLE_SCD
+#if APP_HAS_SCD4X
 	if (scd == NULL || !device_is_ready(scd))
 	{
 		LOG_WRN("SCD4X device not ready, keeping previous value");
@@ -928,9 +951,7 @@ int main(void)
 
 	init_shtc3_device();
 
-#ifdef ENABLE_SCD
 	init_scd4x_device();
-#endif
 
 	init_adc();
 
