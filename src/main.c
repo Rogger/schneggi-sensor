@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <stdlib.h>
 #include <soc.h>
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
@@ -31,8 +32,16 @@
 // Sleep
 static const uint32_t SLEEP_INTERVAL_SECONDS = (uint32_t)CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60U;				   // HA minimum = 30s
 static const uint32_t BATTERY_REPORT_INTERVAL_SECONDS = (uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U; // HA minimum = 3600s
+static const uint32_t SENSOR_REFRESH_INTERVAL_SECONDS = 24U * 60U * 60U;
 static const uint32_t BATTERY_SLEEP_CYCLES =
 	(BATTERY_REPORT_INTERVAL_SECONDS + SLEEP_INTERVAL_SECONDS - 1U) / SLEEP_INTERVAL_SECONDS;
+static const uint32_t SENSOR_REFRESH_CYCLES =
+	(SENSOR_REFRESH_INTERVAL_SECONDS + SLEEP_INTERVAL_SECONDS - 1U) / SLEEP_INTERVAL_SECONDS;
+
+#define TEMP_REPORT_THRESHOLD_CENTI_C 10
+#define HUMIDITY_REPORT_THRESHOLD_CENTI_PERCENT 100
+#define BATTERY_VOLTAGE_REPORT_THRESHOLD_MV 100
+#define BATTERY_PERCENT_REPORT_THRESHOLD 1
 
 #if defined(CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS)
 #define APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS ((uint32_t)CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS)
@@ -238,6 +247,87 @@ static const struct device *scd;
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
+struct report_state
+{
+	bool temp_valid;
+	int16_t temp_value;
+	uint32_t temp_cycle;
+	bool humidity_valid;
+	int16_t humidity_value;
+	uint32_t humidity_cycle;
+	bool battery_voltage_valid;
+	int32_t battery_voltage_mv;
+	uint32_t battery_voltage_cycle;
+	bool battery_percentage_valid;
+	uint8_t battery_percentage;
+	uint32_t battery_percentage_cycle;
+};
+
+static struct report_state report_state;
+
+static bool report_due_s16(bool valid,
+			   int16_t previous_value,
+			   uint32_t previous_cycle,
+			   int16_t new_value,
+			   int16_t threshold,
+			   uint32_t current_cycle,
+			   uint32_t refresh_cycles)
+{
+	if (!valid)
+	{
+		return true;
+	}
+
+	if ((uint32_t)abs(new_value - previous_value) >= (uint32_t)threshold)
+	{
+		return true;
+	}
+
+	return (current_cycle - previous_cycle) >= refresh_cycles;
+}
+
+static bool report_due_s32(bool valid,
+			   int32_t previous_value,
+			   uint32_t previous_cycle,
+			   int32_t new_value,
+			   int32_t threshold,
+			   uint32_t current_cycle,
+			   uint32_t refresh_cycles)
+{
+	if (!valid)
+	{
+		return true;
+	}
+
+	if ((uint32_t)abs(new_value - previous_value) >= (uint32_t)threshold)
+	{
+		return true;
+	}
+
+	return (current_cycle - previous_cycle) >= refresh_cycles;
+}
+
+static bool report_due_u8(bool valid,
+			  uint8_t previous_value,
+			  uint32_t previous_cycle,
+			  uint8_t new_value,
+			  uint8_t threshold,
+			  uint32_t current_cycle,
+			  uint32_t refresh_cycles)
+{
+	if (!valid)
+	{
+		return true;
+	}
+
+	if ((uint8_t)abs((int)new_value - (int)previous_value) >= threshold)
+	{
+		return true;
+	}
+
+	return (current_cycle - previous_cycle) >= refresh_cycles;
+}
+
 static void init_shtc3_device(void)
 {
 	// Get a device structure from a devicetree node with compatible "sensirion,shtcx".
@@ -392,7 +482,7 @@ static void identify_cb(zb_bufid_t bufid)
 	}
 }
 
-void update_sensor_values()
+void update_sensor_values(uint32_t current_cycle)
 {
 	int err = 0;
 
@@ -421,18 +511,37 @@ void update_sensor_values()
 			{
 				measured_temperature = sensor_value_to_double(&temp);
 				temperature_attribute = (int16_t)(measured_temperature * 100);
-				LOG_INF("Temperature: %.2f °C", measured_temperature);
-
-				zb_zcl_status_t status = zb_zcl_set_attr_val(
-					SCHNEGGI_ENDPOINT,
-					ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
-					ZB_ZCL_CLUSTER_SERVER_ROLE,
-					ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
-					(zb_uint8_t *)&temperature_attribute,
-					ZB_FALSE);
-				if (status != ZB_ZCL_STATUS_SUCCESS)
+				if (report_due_s16(report_state.temp_valid,
+						 report_state.temp_value,
+						 report_state.temp_cycle,
+						 temperature_attribute,
+						 TEMP_REPORT_THRESHOLD_CENTI_C,
+						 current_cycle,
+						 SENSOR_REFRESH_CYCLES))
 				{
-					LOG_ERR("Failed to set temperature attribute: %d", status);
+					LOG_INF("Temperature: %.2f °C", measured_temperature);
+
+					zb_zcl_status_t status = zb_zcl_set_attr_val(
+						SCHNEGGI_ENDPOINT,
+						ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+						ZB_ZCL_CLUSTER_SERVER_ROLE,
+						ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
+						(zb_uint8_t *)&temperature_attribute,
+						ZB_FALSE);
+					if (status != ZB_ZCL_STATUS_SUCCESS)
+					{
+						LOG_ERR("Failed to set temperature attribute: %d", status);
+					}
+					else
+					{
+						report_state.temp_valid = true;
+						report_state.temp_value = temperature_attribute;
+						report_state.temp_cycle = current_cycle;
+					}
+				}
+				else
+				{
+					LOG_DBG("Temperature delta below threshold, skipping report");
 				}
 			}
 			else
@@ -445,18 +554,37 @@ void update_sensor_values()
 			{
 				measured_humidity = sensor_value_to_double(&hum);
 				humidity_attribute = (int16_t)(measured_humidity * 100);
-				LOG_INF("Humidity: %.2f RH", measured_humidity);
-
-				zb_zcl_status_t status = zb_zcl_set_attr_val(
-					SCHNEGGI_ENDPOINT,
-					ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
-					ZB_ZCL_CLUSTER_SERVER_ROLE,
-					ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
-					(zb_uint8_t *)&humidity_attribute,
-					ZB_FALSE);
-				if (status != ZB_ZCL_STATUS_SUCCESS)
+				if (report_due_s16(report_state.humidity_valid,
+						 report_state.humidity_value,
+						 report_state.humidity_cycle,
+						 humidity_attribute,
+						 HUMIDITY_REPORT_THRESHOLD_CENTI_PERCENT,
+						 current_cycle,
+						 SENSOR_REFRESH_CYCLES))
 				{
-					LOG_ERR("Failed to set humidity attribute: %d", status);
+					LOG_INF("Humidity: %.2f RH", measured_humidity);
+
+					zb_zcl_status_t status = zb_zcl_set_attr_val(
+						SCHNEGGI_ENDPOINT,
+						ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+						ZB_ZCL_CLUSTER_SERVER_ROLE,
+						ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
+						(zb_uint8_t *)&humidity_attribute,
+						ZB_FALSE);
+					if (status != ZB_ZCL_STATUS_SUCCESS)
+					{
+						LOG_ERR("Failed to set humidity attribute: %d", status);
+					}
+					else
+					{
+						report_state.humidity_valid = true;
+						report_state.humidity_value = humidity_attribute;
+						report_state.humidity_cycle = current_cycle;
+					}
+				}
+				else
+				{
+					LOG_DBG("Humidity delta below threshold, skipping report");
 				}
 			}
 			else
@@ -599,7 +727,7 @@ unsigned int battery_level_pptt(unsigned int batt_mV,
 	return pb->lvl_pptt + ((pa->lvl_pptt - pb->lvl_pptt) * (batt_mV - pb->lvl_mV) / (pa->lvl_mV - pb->lvl_mV));
 }
 
-void update_battery()
+void update_battery(uint32_t current_cycle)
 {
 	int err;
 
@@ -659,34 +787,68 @@ void update_battery()
 				}
 
 				uint8_t battery_attribute = (uint8_t)(battery_voltage_mv / 100);
-				LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x", battery_voltage_mv, battery_attribute);
-				zb_zcl_status_t status_battery_voltage = zb_zcl_set_attr_val(
-					SCHNEGGI_ENDPOINT,
-					ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
-					ZB_ZCL_CLUSTER_SERVER_ROLE,
-					ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID,
-					(zb_uint8_t *)&battery_attribute,
-					ZB_FALSE);
-				if (status_battery_voltage)
+				if (report_due_s32(report_state.battery_voltage_valid,
+						 report_state.battery_voltage_mv,
+						 report_state.battery_voltage_cycle,
+						 battery_voltage_mv,
+						 BATTERY_VOLTAGE_REPORT_THRESHOLD_MV,
+						 current_cycle,
+						 BATTERY_SLEEP_CYCLES))
 				{
-					LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
-					goto cleanup;
+					LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x", battery_voltage_mv, battery_attribute);
+					zb_zcl_status_t status_battery_voltage = zb_zcl_set_attr_val(
+						SCHNEGGI_ENDPOINT,
+						ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
+						ZB_ZCL_CLUSTER_SERVER_ROLE,
+						ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID,
+						(zb_uint8_t *)&battery_attribute,
+						ZB_FALSE);
+					if (status_battery_voltage)
+					{
+						LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
+						goto cleanup;
+					}
+
+					report_state.battery_voltage_valid = true;
+					report_state.battery_voltage_mv = battery_voltage_mv;
+					report_state.battery_voltage_cycle = current_cycle;
+				}
+				else
+				{
+					LOG_DBG("Battery voltage delta below threshold, skipping report");
 				}
 
 				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve) / 100;
 				uint8_t battery_percentage_attribute = (uint8_t)(battery_percentage * 2); // 3.3.2.2.3.2
-				LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x", battery_percentage, battery_percentage_attribute);
-				zb_zcl_status_t status_battery_percentage = zb_zcl_set_attr_val(
-					SCHNEGGI_ENDPOINT,
-					ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
-					ZB_ZCL_CLUSTER_SERVER_ROLE,
-					ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID,
-					(zb_uint8_t *)&battery_percentage_attribute,
-					ZB_FALSE);
-				if (status_battery_percentage)
+				if (report_due_u8(report_state.battery_percentage_valid,
+						report_state.battery_percentage,
+						report_state.battery_percentage_cycle,
+						(uint8_t)battery_percentage,
+						BATTERY_PERCENT_REPORT_THRESHOLD,
+						current_cycle,
+						BATTERY_SLEEP_CYCLES))
 				{
-					LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
-					goto cleanup;
+					LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x", battery_percentage, battery_percentage_attribute);
+					zb_zcl_status_t status_battery_percentage = zb_zcl_set_attr_val(
+						SCHNEGGI_ENDPOINT,
+						ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
+						ZB_ZCL_CLUSTER_SERVER_ROLE,
+						ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID,
+						(zb_uint8_t *)&battery_percentage_attribute,
+						ZB_FALSE);
+					if (status_battery_percentage)
+					{
+						LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
+						goto cleanup;
+					}
+
+					report_state.battery_percentage_valid = true;
+					report_state.battery_percentage = (uint8_t)battery_percentage;
+					report_state.battery_percentage_cycle = current_cycle;
+				}
+				else
+				{
+					LOG_DBG("Battery percentage delta below threshold, skipping report");
 				}
 			}
 		}
@@ -696,13 +858,15 @@ cleanup:
 	gpio_pin_set_dt(&battery_monitor_enable, 0);
 }
 
-static uint32_t cycles = 0;
+static uint32_t battery_cycles = 0;
+static uint32_t measurement_cycles = 0;
 
 static void sensor_loop(zb_bufid_t bufid)
 {
 	ZVUNUSED(bufid);
+	uint32_t current_cycle = measurement_cycles++;
 
-	LOG_DBG("-- Loop %" PRIu32 " / %" PRIu32 " (%s)--", cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
+	LOG_DBG("-- Loop %" PRIu32 " / %" PRIu32 " (%s)--", battery_cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
 
 	ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
@@ -713,17 +877,17 @@ static void sensor_loop(zb_bufid_t bufid)
 		LOG_ERR("Unable to schedule the sensor loop");
 	}
 
-	update_sensor_values();
+	update_sensor_values(current_cycle);
 
 	/* Update battery on startup (cycles==0) or oncce BATTERY_SLEEP_CYCLES is reached*/
-	if (cycles == 0 || cycles == BATTERY_SLEEP_CYCLES)
+	if (battery_cycles == 0 || battery_cycles == BATTERY_SLEEP_CYCLES)
 	{
-		update_battery();
-		cycles = 1;
+		update_battery(current_cycle);
+		battery_cycles = 1;
 	}
 	else
 	{
-		cycles++;
+		battery_cycles++;
 	}
 
 	LOG_DBG("Sleep for %" PRIu32 " seconds", SLEEP_INTERVAL_SECONDS);
