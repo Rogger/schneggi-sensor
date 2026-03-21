@@ -511,6 +511,7 @@ void update_sensor_values(uint32_t current_cycle)
 			{
 				measured_temperature = sensor_value_to_double(&temp);
 				temperature_attribute = (int16_t)(measured_temperature * 100);
+				dev_ctx.temp_measure_attrs.measure_value = temperature_attribute;
 				if (report_due_s16(report_state.temp_valid,
 						 report_state.temp_value,
 						 report_state.temp_cycle,
@@ -554,6 +555,7 @@ void update_sensor_values(uint32_t current_cycle)
 			{
 				measured_humidity = sensor_value_to_double(&hum);
 				humidity_attribute = (int16_t)(measured_humidity * 100);
+				dev_ctx.humidity_measure_attrs.measure_value = humidity_attribute;
 				if (report_due_s16(report_state.humidity_valid,
 						 report_state.humidity_value,
 						 report_state.humidity_cycle,
@@ -787,6 +789,7 @@ void update_battery(uint32_t current_cycle)
 				}
 
 				uint8_t battery_attribute = (uint8_t)(battery_voltage_mv / 100);
+				dev_ctx.power_config_attr.battery_voltage = battery_attribute;
 				if (report_due_s32(report_state.battery_voltage_valid,
 						 report_state.battery_voltage_mv,
 						 report_state.battery_voltage_cycle,
@@ -820,6 +823,7 @@ void update_battery(uint32_t current_cycle)
 
 				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve) / 100;
 				uint8_t battery_percentage_attribute = (uint8_t)(battery_percentage * 2); // 3.3.2.2.3.2
+				dev_ctx.power_config_attr.battery_percentage_remaining = battery_percentage_attribute;
 				if (report_due_u8(report_state.battery_percentage_valid,
 						report_state.battery_percentage,
 						report_state.battery_percentage_cycle,
