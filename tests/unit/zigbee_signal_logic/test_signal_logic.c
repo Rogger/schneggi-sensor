@@ -181,7 +181,7 @@ static void test_parent_link_failure_starts_rejoin(void)
 	assert(state.joining_signal_received == false);
 	assert(actions.start_rejoin == true);
 	assert(actions.stop_rejoin == false);
-	assert(actions.force_rejoin == true);
+	assert(actions.force_rejoin == false);
 	assert(actions.request_sleep == false);
 }
 

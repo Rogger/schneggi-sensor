@@ -92,7 +92,6 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 		{
 			state->joining_signal_received = false;
 			actions->start_rejoin = true;
-			actions->force_rejoin = true;
 		}
 		break;
 
