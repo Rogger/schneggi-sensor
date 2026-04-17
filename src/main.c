@@ -1062,8 +1062,8 @@ static void execute_signal_actions(const struct app_zigbee_actions *actions)
 
 	if (actions->set_long_poll_interval)
 	{
-		zb_zdo_pim_set_long_poll_interval(
-			ZB_MILLISECONDS_TO_BEACON_INTERVAL(actions->long_poll_interval_ms));
+		/* long poll uses milliseconds; keepalive uses beacon intervals */
+		zb_zdo_pim_set_long_poll_interval(actions->long_poll_interval_ms);
 	}
 
 	if (actions->stop_rejoin)
