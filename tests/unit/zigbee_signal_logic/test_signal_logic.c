@@ -9,7 +9,6 @@ static void assert_no_connected_side_effects(const struct app_zigbee_actions *ac
 	assert(actions->schedule_sensor_loop_cancel == false);
 	assert(actions->schedule_sensor_loop == false);
 	assert(actions->set_long_poll_interval == false);
-	assert(actions->force_rejoin == false);
 	assert(actions->stop_rejoin == false);
 }
 
@@ -163,7 +162,6 @@ static void test_leave_starts_rejoin_without_reset(void)
 
 	assert(state.joining_signal_received == false);
 	assert(actions.start_rejoin == true);
-	assert(actions.force_rejoin == false);
 	assert(actions.commissioning_mode == APP_COMMISSIONING_NONE);
 	assert_no_connected_side_effects(&actions);
 }
@@ -181,7 +179,6 @@ static void test_parent_link_failure_starts_rejoin(void)
 	assert(state.joining_signal_received == false);
 	assert(actions.start_rejoin == true);
 	assert(actions.stop_rejoin == false);
-	assert(actions.force_rejoin == false);
 	assert(actions.request_sleep == false);
 }
 

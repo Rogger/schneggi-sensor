@@ -40,7 +40,6 @@ struct app_zigbee_actions {
 	bool set_long_poll_interval;
 	uint32_t long_poll_interval_ms;
 	bool start_rejoin;
-	bool force_rejoin;
 	bool stop_rejoin;
 	bool request_sleep;
 };

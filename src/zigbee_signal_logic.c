@@ -9,7 +9,6 @@ void app_zigbee_actions_reset(struct app_zigbee_actions *actions)
 	actions->set_long_poll_interval = false;
 	actions->long_poll_interval_ms = 0U;
 	actions->start_rejoin = false;
-	actions->force_rejoin = false;
 	actions->stop_rejoin = false;
 	actions->request_sleep = false;
 }

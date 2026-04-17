@@ -6,3 +6,4 @@ enable_testing()
 
 add_subdirectory(zigbee_signal_logic)
 add_subdirectory(co2_zcl)
+add_subdirectory(rejoin_logic)
