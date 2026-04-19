@@ -39,8 +39,9 @@ struct app_zigbee_actions {
 	uint32_t schedule_sensor_loop_delay_ms;
 	bool set_long_poll_interval;
 	uint32_t long_poll_interval_ms;
+	bool start_rejoin;
+	bool stop_rejoin;
 	bool request_sleep;
-	bool request_reset;
 };
 
 void app_zigbee_actions_reset(struct app_zigbee_actions *actions);

@@ -27,6 +27,7 @@
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
 #include "co2_zcl_logic.h"
+#include "rejoin_logic.h"
 #include "zigbee_signal_logic.h"
 
 // Sleep
@@ -864,6 +865,7 @@ cleanup:
 
 static uint32_t battery_cycles = 0;
 static uint32_t measurement_cycles = 0;
+static struct app_rejoin_state rejoin_state = {0};
 
 static void sensor_loop(zb_bufid_t bufid)
 {
@@ -900,6 +902,73 @@ static void sensor_loop(zb_bufid_t bufid)
 bool joining_signal_received = false;
 bool stack_initialised = false;
 
+static void start_network_steering(zb_uint8_t param);
+static void execute_rejoin_outcome(const struct app_rejoin_outcome *outcome)
+{
+	if (outcome->log_started)
+	{
+		LOG_INF("Started network rejoin procedure");
+	}
+
+	if (outcome->log_stopped)
+	{
+		LOG_INF("Network rejoin procedure stopped");
+	}
+
+	if (outcome->schedule_retry)
+	{
+		if (ZB_SCHEDULE_APP_ALARM(start_network_steering,
+								  ZB_FALSE,
+								  ZB_MILLISECONDS_TO_BEACON_INTERVAL(outcome->retry_delay_s * 1000U)) != RET_OK)
+		{
+			LOG_ERR("Unable to schedule network rejoin retry");
+			return;
+		}
+
+		app_rejoin_mark_retry_pending(&rejoin_state);
+		LOG_INF("Scheduled network rejoin retry in %" PRIu32 " s", outcome->retry_delay_s);
+	}
+
+	if (outcome->stop_deferred)
+	{
+		LOG_WRN("Unable to cancel pending rejoin attempt immediately");
+	}
+}
+
+static void start_network_steering(zb_uint8_t param)
+{
+	struct app_rejoin_outcome outcome;
+
+	ZVUNUSED(param);
+
+	app_rejoin_mark_retry_fired(&rejoin_state);
+	LOG_INF("Starting network steering retry");
+
+	if (bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING) != ZB_TRUE)
+	{
+		LOG_WRN("Failed to start network steering, scheduling next retry");
+		app_rejoin_process(&rejoin_state, stack_initialised, ZB_JOINED(), &outcome);
+		execute_rejoin_outcome(&outcome);
+	}
+}
+
+static void start_network_rejoin(void)
+{
+	struct app_rejoin_outcome outcome;
+
+	app_rejoin_start(&rejoin_state, stack_initialised, ZB_JOINED(), &outcome);
+	execute_rejoin_outcome(&outcome);
+}
+
+static void stop_network_rejoin(void)
+{
+	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM_CANCEL(start_network_steering, ZB_ALARM_ANY_PARAM);
+	struct app_rejoin_outcome outcome;
+
+	app_rejoin_stop(&rejoin_state, ret == RET_OK || ret == RET_NOT_FOUND, &outcome);
+	execute_rejoin_outcome(&outcome);
+}
+
 static void execute_signal_actions(const struct app_zigbee_actions *actions)
 {
 	zb_bool_t comm_status = ZB_TRUE;
@@ -932,17 +1001,23 @@ static void execute_signal_actions(const struct app_zigbee_actions *actions)
 
 	if (actions->set_long_poll_interval)
 	{
+		/* long poll uses milliseconds; keepalive uses beacon intervals */
 		zb_zdo_pim_set_long_poll_interval(actions->long_poll_interval_ms);
+	}
+
+	if (actions->stop_rejoin)
+	{
+		stop_network_rejoin();
+	}
+
+	if (actions->start_rejoin)
+	{
+		start_network_rejoin();
 	}
 
 	if (actions->request_sleep)
 	{
 		zb_sleep_now();
-	}
-
-	if (actions->request_reset)
-	{
-		zb_reset(0);
 	}
 }
 
@@ -1091,10 +1166,6 @@ void zboss_signal_handler(zb_uint8_t param)
 								 false,
 								 parent_link_failure,
 								 &actions);
-		if (actions.request_reset)
-		{
-			LOG_WRN("Broken rejon procedure");
-		}
 		execute_signal_actions(&actions);
 		break;
 	}

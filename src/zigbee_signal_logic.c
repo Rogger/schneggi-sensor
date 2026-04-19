@@ -8,8 +8,9 @@ void app_zigbee_actions_reset(struct app_zigbee_actions *actions)
 	actions->schedule_sensor_loop_delay_ms = 0U;
 	actions->set_long_poll_interval = false;
 	actions->long_poll_interval_ms = 0U;
+	actions->start_rejoin = false;
+	actions->stop_rejoin = false;
 	actions->request_sleep = false;
-	actions->request_reset = false;
 }
 
 void app_zigbee_handle_signal(struct app_zigbee_state *state,
@@ -32,7 +33,7 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 		state->joining_signal_received = false;
 		if (status_ok)
 		{
-			actions->commissioning_mode = APP_COMMISSIONING_NETWORK_STEERING;
+			actions->start_rejoin = true;
 		}
 		break;
 
@@ -45,11 +46,12 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 			actions->schedule_sensor_loop_delay_ms = 1000U;
 			actions->set_long_poll_interval = true;
 			actions->long_poll_interval_ms = APP_ZIGBEE_LONG_POLL_INTERVAL_MS;
+			actions->stop_rejoin = true;
 		}
 		else
 		{
 			state->joining_signal_received = false;
-			actions->commissioning_mode = APP_COMMISSIONING_NETWORK_STEERING;
+			actions->start_rejoin = true;
 		}
 		break;
 
@@ -62,23 +64,21 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 			actions->schedule_sensor_loop_delay_ms = 1000U;
 			actions->set_long_poll_interval = true;
 			actions->long_poll_interval_ms = APP_ZIGBEE_LONG_POLL_INTERVAL_MS;
+			actions->stop_rejoin = true;
 		}
 		else
 		{
 			state->joining_signal_received = false;
-			actions->commissioning_mode = APP_COMMISSIONING_NETWORK_STEERING;
+			actions->start_rejoin = true;
 		}
 		break;
 
 	case APP_ZIGBEE_SIGNAL_LEAVE:
 		if (status_ok)
 		{
-			if (leave_type_rejoin)
-			{
-				state->joining_signal_received = false;
-			}
-
-			actions->commissioning_mode = APP_COMMISSIONING_NETWORK_STEERING;
+			(void)leave_type_rejoin;
+			state->joining_signal_received = false;
+			actions->start_rejoin = true;
 		}
 		break;
 
@@ -87,11 +87,10 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 		break;
 
 	case APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION:
-		if (parent_link_failure &&
-		    state->stack_initialised &&
-		    !state->joining_signal_received)
+		if (parent_link_failure && state->stack_initialised)
 		{
-			actions->request_reset = true;
+			state->joining_signal_received = false;
+			actions->start_rejoin = true;
 		}
 		break;
 

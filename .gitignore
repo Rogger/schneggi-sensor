@@ -3,6 +3,18 @@
 
 # Local build outputs
 build/
+build_default/
+build_debug/
+build_debug_co2/
+build_no_scd4x/
+build_production/
+build_production_co2/
+build_scd4x/
+build_west/
+build_west_rejoin_check/
+
+# Local Codex state
+.codex/
 
 # KiCad temporary lock files
 *.kicad_sch.lck

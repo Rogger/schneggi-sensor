@@ -46,12 +46,34 @@ This initializes a west workspace in the parent directory and fetches all requir
 
 ```bash
 cd <project-dir>
-make build
+make build-debug
 ```
 
 Default output:
-- `build_west/merged.hex`
-- `build_west/schneggi-sensor/zephyr/zephyr.elf`
+- `build_debug/merged.hex`
+- `build_debug/schneggi-sensor/zephyr/zephyr.elf`
+
+### Build Profiles
+
+Convenience targets:
+
+- `make build-debug`
+  - Debug build without CO2 / SCD4X
+- `make build-debug-co2`
+  - Debug build with CO2 / SCD4X
+- `make build-production`
+  - Production build without CO2 / SCD4X
+- `make build-production-co2`
+  - Production build with CO2 / SCD4X
+
+Equivalent flash targets:
+
+```bash
+make flash-debug
+make flash-debug-co2
+make flash-production
+make flash-production-co2
+```
 
 ### 3) Test (host unit tests)
 
@@ -62,14 +84,14 @@ make test
 ### 4) Flash
 
 ```bash
-make flash
+make flash-debug
 ```
 
 ### Useful overrides
 
 ```bash
-make build BUILD_DIR=build_debug
-make build CONF_FILE=prj_production.conf
+make build BUILD_DIR=build_custom
+make build CONF_FILE=prj_production_no_scd4x.conf OVERLAY='boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay'
 make flash SNR=<your_jlink_serial>
 ```
 
