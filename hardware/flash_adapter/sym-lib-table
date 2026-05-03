@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name "Connector_Generic")(type "KiCad")(uri "${KICAD9_SYMBOL_DIR}/Connector_Generic.kicad_sym")(options "")(descr ""))
+  (lib (name "easyeda_import")(type "KiCad")(uri "${KIPRJMOD}/schneggi_library/easyeda_import.kicad_sym")(options "")(descr ""))
+)
