@@ -35,12 +35,14 @@ From the project directory:
 
 ```bash
 west init -l .
-cd ..
-west update
+make west-update
 ```
 
 This initializes a west workspace in the parent directory and fetches all required modules
-(including `modules/sensirion_drivers` for SCD4X).
+(including `modules/sensirion_drivers` for SCD4X/CO2 builds).
+
+The Makefile uses the parent west workspace when `../.west` exists. To use a
+different NCS workspace, pass `NCS_WORKSPACE=/path/to/workspace`.
 
 ### 2) Build
 
@@ -75,6 +77,13 @@ make flash-production
 make flash-production-co2
 ```
 
+For the CO2 production firmware:
+
+```bash
+make build-production-co2
+make flash-production-co2
+```
+
 ### 3) Test (host unit tests)
 
 ```bash
@@ -87,11 +96,18 @@ make test
 make flash-debug
 ```
 
+For a specific J-Link probe:
+
+```bash
+make flash-production-co2 SNR=<your_jlink_serial>
+```
+
 ### Useful overrides
 
 ```bash
 make build BUILD_DIR=build_custom
 make build CONF_FILE=prj_production_no_scd4x.conf OVERLAY='boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay'
+make build-production-co2 NCS_WORKSPACE=/path/to/workspace
 make flash SNR=<your_jlink_serial>
 ```
 

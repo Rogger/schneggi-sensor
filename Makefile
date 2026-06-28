@@ -14,7 +14,8 @@ CONF_FILE ?= prj_debug_no_scd4x.conf
 OVERLAY ?= boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
 BUILD_DIR ?= build_default
 APP_DIR := $(CURDIR)
-NCS_WORKSPACE ?= $(if $(and $(wildcard $(APP_DIR)/../.west),$(wildcard $(APP_DIR)/../zephyr)),$(abspath $(APP_DIR)/..),$(shell find $$HOME/ncs -mindepth 1 -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort | tail -n1))
+PARENT_WORKSPACE := $(abspath $(APP_DIR)/..)
+NCS_WORKSPACE ?= $(if $(wildcard $(PARENT_WORKSPACE)/.west),$(PARENT_WORKSPACE),$(shell find $$HOME/ncs -mindepth 1 -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort | tail -n1))
 BUILD_DIR_ABS = $(if $(filter /%,$(BUILD_DIR)),$(BUILD_DIR),$(APP_DIR)/$(BUILD_DIR))
 HEX ?= $(BUILD_DIR_ABS)/merged.hex
 
@@ -26,6 +27,7 @@ WEST ?= west
 WEST_ENV = \
 	PATH="$(TOOLCHAIN_PATH)/bin:$(TOOLCHAIN_PATH)/usr/bin:$(TOOLCHAIN_PATH)/usr/local/bin:$(TOOLCHAIN_PATH)/opt/bin:$$PATH" \
 	LD_LIBRARY_PATH="$(TOOLCHAIN_PATH)/lib:$(TOOLCHAIN_PATH)/lib/x86_64-linux-gnu:$(TOOLCHAIN_PATH)/usr/local/lib:$${LD_LIBRARY_PATH:-}" \
+	GIT_EXEC_PATH="/usr/lib/git-core" \
 	PYTHONHOME="$(TOOLCHAIN_PATH)/usr/local" \
 	XDG_CACHE_HOME="$(XDG_CACHE_HOME)" \
 	ZEPHYR_TOOLCHAIN_VARIANT=zephyr \
@@ -42,12 +44,15 @@ check:
 	@test -x "$(TOOLCHAIN_PYTHON)" || (echo "Missing TOOLCHAIN_PYTHON: $(TOOLCHAIN_PYTHON)"; exit 1)
 	@mkdir -p "$(XDG_CACHE_HOME)"
 	@test -d "$(NCS_WORKSPACE)/.west" || (echo "Invalid NCS_WORKSPACE: $(NCS_WORKSPACE)"; exit 1)
-	@test -d "$(NCS_WORKSPACE)/zephyr" || (echo "Missing zephyr dir in NCS_WORKSPACE"; exit 1)
+	@test -d "$(NCS_WORKSPACE)/zephyr" || (echo "Missing zephyr dir in NCS_WORKSPACE: $(NCS_WORKSPACE). Run: make west-update"; exit 1)
 	@if ! printf '%s' "$(OVERLAY)" | grep -q 'boards/no_scd4x.overlay'; then \
 		test -d "$(NCS_WORKSPACE)/modules/sensirion_drivers" || (echo "Missing SCD4X module in workspace. Run: make west-update"; exit 1); \
 	fi
 
-check-toolchain: check
+check-toolchain:
+	@test -x "$(TOOLCHAIN_PYTHON)" || (echo "Missing TOOLCHAIN_PYTHON: $(TOOLCHAIN_PYTHON)"; exit 1)
+	@mkdir -p "$(XDG_CACHE_HOME)"
+	@test -d "$(NCS_WORKSPACE)/.west" || (echo "Invalid NCS_WORKSPACE: $(NCS_WORKSPACE)"; exit 1)
 
 west-update: check-toolchain
 	@cd "$(NCS_WORKSPACE)" && env $(WEST_ENV) $(WEST) update
