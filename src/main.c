@@ -590,6 +590,77 @@ void update_sensor_values(uint32_t current_cycle)
 #endif
 }
 
+static bool update_battery_voltage_report(int32_t battery_voltage_mv, uint32_t current_cycle)
+{
+	uint8_t battery_attribute = app_battery_voltage_zcl_attribute(battery_voltage_mv);
+
+	dev_ctx.power_config_attr.battery_voltage = battery_attribute;
+	if (!app_report_due_s32(report_state.battery_voltage_valid,
+				report_state.battery_voltage_mv,
+				report_state.battery_voltage_cycle,
+				battery_voltage_mv,
+				BATTERY_VOLTAGE_REPORT_THRESHOLD_MV,
+				current_cycle,
+				BATTERY_SLEEP_CYCLES))
+	{
+		LOG_DBG("Battery voltage delta below threshold, skipping report");
+		return true;
+	}
+
+	LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x",
+		battery_voltage_mv,
+		battery_attribute);
+	zb_zcl_status_t status_battery_voltage =
+		app_zcl_report_battery_voltage(SCHNEGGI_ENDPOINT, battery_attribute);
+	if (status_battery_voltage)
+	{
+		LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
+		return false;
+	}
+
+	report_state.battery_voltage_valid = true;
+	report_state.battery_voltage_mv = battery_voltage_mv;
+	report_state.battery_voltage_cycle = current_cycle;
+
+	return true;
+}
+
+static bool update_battery_percentage_report(uint8_t battery_percentage, uint32_t current_cycle)
+{
+	uint8_t battery_percentage_attribute = app_battery_percentage_zcl_attribute(battery_percentage);
+
+	dev_ctx.power_config_attr.battery_percentage_remaining = battery_percentage_attribute;
+	if (!app_report_due_u8(report_state.battery_percentage_valid,
+			       report_state.battery_percentage,
+			       report_state.battery_percentage_cycle,
+			       battery_percentage,
+			       BATTERY_PERCENT_REPORT_THRESHOLD,
+			       current_cycle,
+			       BATTERY_SLEEP_CYCLES))
+	{
+		LOG_DBG("Battery percentage delta below threshold, skipping report");
+		return true;
+	}
+
+	LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x",
+		battery_percentage,
+		battery_percentage_attribute);
+	zb_zcl_status_t status_battery_percentage =
+		app_zcl_report_battery_percentage(SCHNEGGI_ENDPOINT,
+						  battery_percentage_attribute);
+	if (status_battery_percentage)
+	{
+		LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
+		return false;
+	}
+
+	report_state.battery_percentage_valid = true;
+	report_state.battery_percentage = battery_percentage;
+	report_state.battery_percentage_cycle = current_cycle;
+
+	return true;
+}
+
 void update_battery(uint32_t current_cycle)
 {
 	int err;
@@ -649,62 +720,15 @@ void update_battery(uint32_t current_cycle)
 					goto cleanup;
 				}
 
-				uint8_t battery_attribute = app_battery_voltage_zcl_attribute(battery_voltage_mv);
-				dev_ctx.power_config_attr.battery_voltage = battery_attribute;
-				if (app_report_due_s32(report_state.battery_voltage_valid,
-						 report_state.battery_voltage_mv,
-						 report_state.battery_voltage_cycle,
-						 battery_voltage_mv,
-						 BATTERY_VOLTAGE_REPORT_THRESHOLD_MV,
-						 current_cycle,
-						 BATTERY_SLEEP_CYCLES))
+				if (!update_battery_voltage_report(battery_voltage_mv, current_cycle))
 				{
-					LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x", battery_voltage_mv, battery_attribute);
-					zb_zcl_status_t status_battery_voltage =
-						app_zcl_report_battery_voltage(SCHNEGGI_ENDPOINT, battery_attribute);
-					if (status_battery_voltage)
-					{
-						LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
-						goto cleanup;
-					}
-
-					report_state.battery_voltage_valid = true;
-					report_state.battery_voltage_mv = battery_voltage_mv;
-					report_state.battery_voltage_cycle = current_cycle;
-				}
-				else
-				{
-					LOG_DBG("Battery voltage delta below threshold, skipping report");
+					goto cleanup;
 				}
 
 				uint8_t battery_percentage = app_battery_percentage_from_mv((uint32_t)battery_voltage_mv);
-				uint8_t battery_percentage_attribute = app_battery_percentage_zcl_attribute(battery_percentage); // 3.3.2.2.3.2
-				dev_ctx.power_config_attr.battery_percentage_remaining = battery_percentage_attribute;
-				if (app_report_due_u8(report_state.battery_percentage_valid,
-						report_state.battery_percentage,
-						report_state.battery_percentage_cycle,
-						battery_percentage,
-						BATTERY_PERCENT_REPORT_THRESHOLD,
-						current_cycle,
-						BATTERY_SLEEP_CYCLES))
+				if (!update_battery_percentage_report(battery_percentage, current_cycle))
 				{
-					LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x", battery_percentage, battery_percentage_attribute);
-					zb_zcl_status_t status_battery_percentage =
-						app_zcl_report_battery_percentage(SCHNEGGI_ENDPOINT,
-										  battery_percentage_attribute);
-					if (status_battery_percentage)
-					{
-						LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
-						goto cleanup;
-					}
-
-					report_state.battery_percentage_valid = true;
-					report_state.battery_percentage = battery_percentage;
-					report_state.battery_percentage_cycle = current_cycle;
-				}
-				else
-				{
-					LOG_DBG("Battery percentage delta below threshold, skipping report");
+					goto cleanup;
 				}
 			}
 		}
