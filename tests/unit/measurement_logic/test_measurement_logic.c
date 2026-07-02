@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include "app_measurement_logic.h"
@@ -52,7 +53,10 @@ static void test_battery_curve_caps_and_interpolates(void)
 static void test_battery_attribute_conversions(void)
 {
 	assert(app_battery_millivolts_from_adc(450) == 4200);
+	assert(app_battery_millivolts_from_adc(3600) == 33600);
 	assert(app_battery_millivolts_from_adc(0) == 0);
+	assert(app_battery_millivolts_from_adc(INT32_MAX) == INT32_MAX);
+	assert(app_battery_millivolts_from_adc(INT32_MIN) == INT32_MIN);
 	assert(app_battery_voltage_zcl_attribute(4200) == 42U);
 	assert(app_battery_voltage_zcl_attribute(3270) == 32U);
 

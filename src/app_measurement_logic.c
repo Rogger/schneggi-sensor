@@ -1,5 +1,7 @@
 #include "app_measurement_logic.h"
 
+#include <limits.h>
+
 struct battery_level_point {
 	uint16_t lvl_pptt;
 	uint16_t lvl_mv;
@@ -131,8 +133,20 @@ unsigned int app_battery_level_pptt(unsigned int batt_mv)
 
 int32_t app_battery_millivolts_from_adc(int32_t adc_mv)
 {
-	return adc_mv * (APP_BATTERY_DIVIDER_HIGH_OHM + APP_BATTERY_DIVIDER_LOW_OHM) /
-	       APP_BATTERY_DIVIDER_LOW_OHM;
+	int64_t battery_mv =
+		(int64_t)adc_mv *
+		(APP_BATTERY_DIVIDER_HIGH_OHM + APP_BATTERY_DIVIDER_LOW_OHM) /
+		APP_BATTERY_DIVIDER_LOW_OHM;
+
+	if (battery_mv > INT32_MAX) {
+		return INT32_MAX;
+	}
+
+	if (battery_mv < INT32_MIN) {
+		return INT32_MIN;
+	}
+
+	return (int32_t)battery_mv;
 }
 
 uint8_t app_battery_voltage_zcl_attribute(int32_t battery_mv)
