@@ -1,5 +1,4 @@
 #include <inttypes.h>
-#include <stdlib.h>
 #include <soc.h>
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
@@ -26,6 +25,7 @@
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
+#include "app_measurement_logic.h"
 #include "co2_zcl_logic.h"
 #include "rejoin_logic.h"
 #include "zigbee_signal_logic.h"
@@ -266,69 +266,6 @@ struct report_state
 
 static struct report_state report_state;
 
-static bool report_due_s16(bool valid,
-			   int16_t previous_value,
-			   uint32_t previous_cycle,
-			   int16_t new_value,
-			   int16_t threshold,
-			   uint32_t current_cycle,
-			   uint32_t refresh_cycles)
-{
-	if (!valid)
-	{
-		return true;
-	}
-
-	if ((uint32_t)abs(new_value - previous_value) >= (uint32_t)threshold)
-	{
-		return true;
-	}
-
-	return (current_cycle - previous_cycle) >= refresh_cycles;
-}
-
-static bool report_due_s32(bool valid,
-			   int32_t previous_value,
-			   uint32_t previous_cycle,
-			   int32_t new_value,
-			   int32_t threshold,
-			   uint32_t current_cycle,
-			   uint32_t refresh_cycles)
-{
-	if (!valid)
-	{
-		return true;
-	}
-
-	if ((uint32_t)abs(new_value - previous_value) >= (uint32_t)threshold)
-	{
-		return true;
-	}
-
-	return (current_cycle - previous_cycle) >= refresh_cycles;
-}
-
-static bool report_due_u8(bool valid,
-			  uint8_t previous_value,
-			  uint32_t previous_cycle,
-			  uint8_t new_value,
-			  uint8_t threshold,
-			  uint32_t current_cycle,
-			  uint32_t refresh_cycles)
-{
-	if (!valid)
-	{
-		return true;
-	}
-
-	if ((uint8_t)abs((int)new_value - (int)previous_value) >= threshold)
-	{
-		return true;
-	}
-
-	return (current_cycle - previous_cycle) >= refresh_cycles;
-}
-
 static void init_shtc3_device(void)
 {
 	// Get a device structure from a devicetree node with compatible "sensirion,shtcx".
@@ -513,7 +450,7 @@ void update_sensor_values(uint32_t current_cycle)
 				measured_temperature = sensor_value_to_double(&temp);
 				temperature_attribute = (int16_t)(measured_temperature * 100);
 				dev_ctx.temp_measure_attrs.measure_value = temperature_attribute;
-				if (report_due_s16(report_state.temp_valid,
+				if (app_report_due_s16(report_state.temp_valid,
 						 report_state.temp_value,
 						 report_state.temp_cycle,
 						 temperature_attribute,
@@ -557,7 +494,7 @@ void update_sensor_values(uint32_t current_cycle)
 				measured_humidity = sensor_value_to_double(&hum);
 				humidity_attribute = (int16_t)(measured_humidity * 100);
 				dev_ctx.humidity_measure_attrs.measure_value = humidity_attribute;
-				if (report_due_s16(report_state.humidity_valid,
+				if (app_report_due_s16(report_state.humidity_valid,
 						 report_state.humidity_value,
 						 report_state.humidity_cycle,
 						 humidity_attribute,
@@ -652,84 +589,6 @@ void update_sensor_values(uint32_t current_cycle)
 #endif
 }
 
-/** A point in a battery discharge curve sequence.
- *
- * A discharge curve is defined as a sequence of these points, where
- * the first point has #lvl_pptt set to 10000 and the last point has
- * #lvl_pptt set to zero.  Both #lvl_pptt and #lvl_mV should be
- * monotonic decreasing within the sequence.
- */
-struct battery_level_point
-{
-	/** Remaining life at #lvl_mV.
-	 * 100 % -> 10000 */
-	uint16_t lvl_pptt;
-
-	/** Battery voltage at #lvl_pptt remaining life. */
-	uint16_t lvl_mV;
-};
-
-/** Discharge curve for a li-poly battery
- *
- * See https://blog.ampow.com/lipo-voltage-chart/
- */
-static const struct battery_level_point discharge_curve[] = {
-	{10000, 4200},
-	{9500, 4150},
-	{9000, 4110},
-	{8500, 4080},
-	{8000, 4020},
-	{7500, 3980},
-	{7000, 3950},
-	{6500, 3910},
-	{6000, 3870},
-	{5500, 3850},
-	{5000, 3840},
-	{4500, 3820},
-	{4000, 3800},
-	{3500, 3790},
-	{3000, 3770},
-	{2500, 3750},
-	{2000, 3730},
-	{1500, 3710},
-	{1000, 3690},
-	{0500, 3610},
-	{0, 3270},
-};
-
-/**
- * @brief calculate the battery percentage based on the battery discharge curve
- * @param batt_mV Battery level in millivolts
- * @param curve Pointer to the battery discharge curve struct
- * @return Positive integer with the battery level in percentage
- **/
-unsigned int battery_level_pptt(unsigned int batt_mV,
-								const struct battery_level_point *curve)
-{
-	const struct battery_level_point *pb = curve;
-
-	if (batt_mV >= pb->lvl_mV)
-	{
-		/* Measured voltage above highest point, cap at maximum. */
-		return pb->lvl_pptt;
-	}
-	/* Go down to the last point at or below the measured voltage. */
-	while ((pb->lvl_pptt > 0) && (batt_mV < pb->lvl_mV))
-	{
-		++pb;
-	}
-	if (batt_mV < pb->lvl_mV)
-	{
-		/* Below lowest point, cap at minimum */
-		return pb->lvl_pptt;
-	}
-
-	/* Linear interpolation between below and above points. */
-	const struct battery_level_point *pa = pb - 1;
-
-	return pb->lvl_pptt + ((pa->lvl_pptt - pb->lvl_pptt) * (batt_mV - pb->lvl_mV) / (pa->lvl_mV - pb->lvl_mV));
-}
-
 void update_battery(uint32_t current_cycle)
 {
 	int err;
@@ -791,7 +650,7 @@ void update_battery(uint32_t current_cycle)
 
 				uint8_t battery_attribute = (uint8_t)(battery_voltage_mv / 100);
 				dev_ctx.power_config_attr.battery_voltage = battery_attribute;
-				if (report_due_s32(report_state.battery_voltage_valid,
+				if (app_report_due_s32(report_state.battery_voltage_valid,
 						 report_state.battery_voltage_mv,
 						 report_state.battery_voltage_cycle,
 						 battery_voltage_mv,
@@ -822,10 +681,10 @@ void update_battery(uint32_t current_cycle)
 					LOG_DBG("Battery voltage delta below threshold, skipping report");
 				}
 
-				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve) / 100;
+				uint32_t battery_percentage = app_battery_level_pptt(battery_voltage_mv) / 100;
 				uint8_t battery_percentage_attribute = (uint8_t)(battery_percentage * 2); // 3.3.2.2.3.2
 				dev_ctx.power_config_attr.battery_percentage_remaining = battery_percentage_attribute;
-				if (report_due_u8(report_state.battery_percentage_valid,
+				if (app_report_due_u8(report_state.battery_percentage_valid,
 						report_state.battery_percentage,
 						report_state.battery_percentage_cycle,
 						(uint8_t)battery_percentage,
