@@ -150,6 +150,23 @@ static void test_startup_to_first_start_to_steering_only_sets_joined_on_steering
 	assert_no_connected_side_effects(&actions);
 }
 
+static void test_startup_failure_does_not_mark_stack_initialised(void)
+{
+	struct app_zigbee_state state = {
+		.joining_signal_received = false,
+		.stack_initialised = false,
+	};
+	struct app_zigbee_actions actions;
+
+	app_zigbee_handle_signal(&state, APP_ZIGBEE_SIGNAL_SKIP_STARTUP, false, false, false, &actions);
+
+	assert(state.stack_initialised == false);
+	assert(state.joining_signal_received == false);
+	assert(actions.commissioning_mode == APP_COMMISSIONING_NONE);
+	assert(actions.start_rejoin == false);
+	assert_no_connected_side_effects(&actions);
+}
+
 static void test_leave_starts_rejoin_without_reset(void)
 {
 	struct app_zigbee_state state = {
@@ -191,6 +208,7 @@ int main(void)
 	test_steering_success_marks_connected_and_schedules_work();
 	test_steering_failure_clears_connected_and_retries();
 	test_startup_to_first_start_to_steering_only_sets_joined_on_steering();
+	test_startup_failure_does_not_mark_stack_initialised();
 	test_leave_starts_rejoin_without_reset();
 	test_parent_link_failure_starts_rejoin();
 
