@@ -57,14 +57,18 @@ static void test_battery_attribute_conversions(void)
 	assert(app_battery_millivolts_from_adc(0) == 0);
 	assert(app_battery_millivolts_from_adc(INT32_MAX) == INT32_MAX);
 	assert(app_battery_millivolts_from_adc(INT32_MIN) == INT32_MIN);
+	assert(app_battery_voltage_zcl_attribute(-100) == 0U);
 	assert(app_battery_voltage_zcl_attribute(4200) == 42U);
 	assert(app_battery_voltage_zcl_attribute(3270) == 32U);
+	assert(app_battery_voltage_zcl_attribute(30000) == 255U);
 
 	assert(app_battery_percentage_from_mv(4200U) == 100U);
 	assert(app_battery_percentage_from_mv(4175U) == 97U);
 	assert(app_battery_percentage_from_mv(3270U) == 0U);
 	assert(app_battery_percentage_zcl_attribute(100U) == 200U);
 	assert(app_battery_percentage_zcl_attribute(97U) == 194U);
+	assert(app_battery_percentage_zcl_attribute(101U) == 200U);
+	assert(app_battery_percentage_zcl_attribute(200U) == 200U);
 }
 
 int main(void)

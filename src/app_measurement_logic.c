@@ -151,6 +151,14 @@ int32_t app_battery_millivolts_from_adc(int32_t adc_mv)
 
 uint8_t app_battery_voltage_zcl_attribute(int32_t battery_mv)
 {
+	if (battery_mv <= 0) {
+		return 0U;
+	}
+
+	if (battery_mv / 100 > UINT8_MAX) {
+		return UINT8_MAX;
+	}
+
 	return (uint8_t)(battery_mv / 100);
 }
 
@@ -161,5 +169,9 @@ uint8_t app_battery_percentage_from_mv(uint32_t battery_mv)
 
 uint8_t app_battery_percentage_zcl_attribute(uint8_t percentage)
 {
+	if (percentage > 100U) {
+		return 200U;
+	}
+
 	return (uint8_t)(percentage * 2U);
 }
