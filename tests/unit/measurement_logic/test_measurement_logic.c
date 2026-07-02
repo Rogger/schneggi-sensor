@@ -49,12 +49,27 @@ static void test_battery_curve_caps_and_interpolates(void)
 	assert(app_battery_level_pptt(4100U) == 8833U);
 }
 
+static void test_battery_attribute_conversions(void)
+{
+	assert(app_battery_millivolts_from_adc(450) == 4200);
+	assert(app_battery_millivolts_from_adc(0) == 0);
+	assert(app_battery_voltage_zcl_attribute(4200) == 42U);
+	assert(app_battery_voltage_zcl_attribute(3270) == 32U);
+
+	assert(app_battery_percentage_from_mv(4200U) == 100U);
+	assert(app_battery_percentage_from_mv(4175U) == 97U);
+	assert(app_battery_percentage_from_mv(3270U) == 0U);
+	assert(app_battery_percentage_zcl_attribute(100U) == 200U);
+	assert(app_battery_percentage_zcl_attribute(97U) == 194U);
+}
+
 int main(void)
 {
 	test_report_due_when_value_is_invalid();
 	test_report_due_on_threshold_delta();
 	test_report_due_on_refresh_cycle();
 	test_battery_curve_caps_and_interpolates();
+	test_battery_attribute_conversions();
 
 	printf("measurement_logic unit tests passed\n");
 	return 0;

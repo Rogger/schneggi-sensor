@@ -29,5 +29,9 @@ bool app_report_due_u8(bool valid,
 		       uint32_t refresh_cycles);
 
 unsigned int app_battery_level_pptt(unsigned int batt_mv);
+int32_t app_battery_millivolts_from_adc(int32_t adc_mv);
+uint8_t app_battery_voltage_zcl_attribute(int32_t battery_mv);
+uint8_t app_battery_percentage_from_mv(uint32_t battery_mv);
+uint8_t app_battery_percentage_zcl_attribute(uint8_t percentage);
 
 #endif /* APP_MEASUREMENT_LOGIC_H_ */

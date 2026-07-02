@@ -29,6 +29,9 @@ static const struct battery_level_point lipo_discharge_curve[] = {
 	{0, 3270},
 };
 
+#define APP_BATTERY_DIVIDER_HIGH_OHM 1500000
+#define APP_BATTERY_DIVIDER_LOW_OHM 180000
+
 static uint32_t abs_diff_s32(int32_t left, int32_t right)
 {
 	int64_t diff = (int64_t)left - (int64_t)right;
@@ -124,4 +127,25 @@ unsigned int app_battery_level_pptt(unsigned int batt_mv)
 	return pb->lvl_pptt +
 	       ((pa->lvl_pptt - pb->lvl_pptt) * (batt_mv - pb->lvl_mv) /
 		(pa->lvl_mv - pb->lvl_mv));
+}
+
+int32_t app_battery_millivolts_from_adc(int32_t adc_mv)
+{
+	return adc_mv * (APP_BATTERY_DIVIDER_HIGH_OHM + APP_BATTERY_DIVIDER_LOW_OHM) /
+	       APP_BATTERY_DIVIDER_LOW_OHM;
+}
+
+uint8_t app_battery_voltage_zcl_attribute(int32_t battery_mv)
+{
+	return (uint8_t)(battery_mv / 100);
+}
+
+uint8_t app_battery_percentage_from_mv(uint32_t battery_mv)
+{
+	return (uint8_t)(app_battery_level_pptt(battery_mv) / 100U);
+}
+
+uint8_t app_battery_percentage_zcl_attribute(uint8_t percentage)
+{
+	return (uint8_t)(percentage * 2U);
 }

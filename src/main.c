@@ -638,7 +638,7 @@ void update_battery(uint32_t current_cycle)
 		else
 		{
 
-			int32_t battery_voltage_mv = val_mv * (1500000 + 180000) / 180000;
+			int32_t battery_voltage_mv = app_battery_millivolts_from_adc(val_mv);
 
 			if (i == 0)
 			{
@@ -648,7 +648,7 @@ void update_battery(uint32_t current_cycle)
 					goto cleanup;
 				}
 
-				uint8_t battery_attribute = (uint8_t)(battery_voltage_mv / 100);
+				uint8_t battery_attribute = app_battery_voltage_zcl_attribute(battery_voltage_mv);
 				dev_ctx.power_config_attr.battery_voltage = battery_attribute;
 				if (app_report_due_s32(report_state.battery_voltage_valid,
 						 report_state.battery_voltage_mv,
@@ -681,13 +681,13 @@ void update_battery(uint32_t current_cycle)
 					LOG_DBG("Battery voltage delta below threshold, skipping report");
 				}
 
-				uint32_t battery_percentage = app_battery_level_pptt(battery_voltage_mv) / 100;
-				uint8_t battery_percentage_attribute = (uint8_t)(battery_percentage * 2); // 3.3.2.2.3.2
+				uint8_t battery_percentage = app_battery_percentage_from_mv((uint32_t)battery_voltage_mv);
+				uint8_t battery_percentage_attribute = app_battery_percentage_zcl_attribute(battery_percentage); // 3.3.2.2.3.2
 				dev_ctx.power_config_attr.battery_percentage_remaining = battery_percentage_attribute;
 				if (app_report_due_u8(report_state.battery_percentage_valid,
 						report_state.battery_percentage,
 						report_state.battery_percentage_cycle,
-						(uint8_t)battery_percentage,
+						battery_percentage,
 						BATTERY_PERCENT_REPORT_THRESHOLD,
 						current_cycle,
 						BATTERY_SLEEP_CYCLES))
@@ -707,7 +707,7 @@ void update_battery(uint32_t current_cycle)
 					}
 
 					report_state.battery_percentage_valid = true;
-					report_state.battery_percentage = (uint8_t)battery_percentage;
+					report_state.battery_percentage = battery_percentage;
 					report_state.battery_percentage_cycle = current_cycle;
 				}
 				else
