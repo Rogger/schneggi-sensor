@@ -26,6 +26,7 @@
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
 #include "app_measurement_logic.h"
+#include "app_zcl_report.h"
 #include "co2_zcl_logic.h"
 #include "rejoin_logic.h"
 #include "zigbee_signal_logic.h"
@@ -460,13 +461,8 @@ void update_sensor_values(uint32_t current_cycle)
 				{
 					LOG_INF("Temperature: %.2f °C", measured_temperature);
 
-					zb_zcl_status_t status = zb_zcl_set_attr_val(
-						SCHNEGGI_ENDPOINT,
-						ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
-						ZB_ZCL_CLUSTER_SERVER_ROLE,
-						ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
-						(zb_uint8_t *)&temperature_attribute,
-						ZB_FALSE);
+					zb_zcl_status_t status =
+						app_zcl_report_temperature(SCHNEGGI_ENDPOINT, temperature_attribute);
 					if (status != ZB_ZCL_STATUS_SUCCESS)
 					{
 						LOG_ERR("Failed to set temperature attribute: %d", status);
@@ -504,13 +500,8 @@ void update_sensor_values(uint32_t current_cycle)
 				{
 					LOG_INF("Humidity: %.2f RH", measured_humidity);
 
-					zb_zcl_status_t status = zb_zcl_set_attr_val(
-						SCHNEGGI_ENDPOINT,
-						ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
-						ZB_ZCL_CLUSTER_SERVER_ROLE,
-						ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
-						(zb_uint8_t *)&humidity_attribute,
-						ZB_FALSE);
+					zb_zcl_status_t status =
+						app_zcl_report_humidity(SCHNEGGI_ENDPOINT, humidity_attribute);
 					if (status != ZB_ZCL_STATUS_SUCCESS)
 					{
 						LOG_ERR("Failed to set humidity attribute: %d", status);
@@ -574,11 +565,7 @@ void update_sensor_values(uint32_t current_cycle)
 				co2_attribute = co2_zcl_fraction_from_ppm(measured_co2);
 
 				zb_zcl_status_t status =
-					zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
-										ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
-										ZB_ZCL_CLUSTER_SERVER_ROLE,
-										ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
-										(zb_uint8_t *)&co2_attribute, ZB_FALSE);
+					app_zcl_report_co2_fraction(SCHNEGGI_ENDPOINT, co2_attribute);
 				if (status != ZB_ZCL_STATUS_SUCCESS)
 				{
 					LOG_ERR("Failed to set CO2 attribute: %d", status);
@@ -659,13 +646,8 @@ void update_battery(uint32_t current_cycle)
 						 BATTERY_SLEEP_CYCLES))
 				{
 					LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x", battery_voltage_mv, battery_attribute);
-					zb_zcl_status_t status_battery_voltage = zb_zcl_set_attr_val(
-						SCHNEGGI_ENDPOINT,
-						ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
-						ZB_ZCL_CLUSTER_SERVER_ROLE,
-						ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID,
-						(zb_uint8_t *)&battery_attribute,
-						ZB_FALSE);
+					zb_zcl_status_t status_battery_voltage =
+						app_zcl_report_battery_voltage(SCHNEGGI_ENDPOINT, battery_attribute);
 					if (status_battery_voltage)
 					{
 						LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
@@ -693,13 +675,9 @@ void update_battery(uint32_t current_cycle)
 						BATTERY_SLEEP_CYCLES))
 				{
 					LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x", battery_percentage, battery_percentage_attribute);
-					zb_zcl_status_t status_battery_percentage = zb_zcl_set_attr_val(
-						SCHNEGGI_ENDPOINT,
-						ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
-						ZB_ZCL_CLUSTER_SERVER_ROLE,
-						ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID,
-						(zb_uint8_t *)&battery_percentage_attribute,
-						ZB_FALSE);
+					zb_zcl_status_t status_battery_percentage =
+						app_zcl_report_battery_percentage(SCHNEGGI_ENDPOINT,
+										  battery_percentage_attribute);
 					if (status_battery_percentage)
 					{
 						LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);

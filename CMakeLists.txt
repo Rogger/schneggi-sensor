@@ -12,6 +12,7 @@ project("Schneggi Sensor")
 
 target_sources(app PRIVATE
 	src/app_measurement_logic.c
+	src/app_zcl_report.c
 	src/co2_zcl_logic.c
 	src/main.c
 	src/rejoin_logic.c
