@@ -421,7 +421,7 @@ static void identify_cb(zb_bufid_t bufid)
 	}
 }
 
-void update_sensor_values(uint32_t current_cycle)
+static void update_shtc3_values(uint32_t current_cycle)
 {
 	int err = 0;
 
@@ -524,8 +524,13 @@ void update_sensor_values(uint32_t current_cycle)
 			}
 		}
 	}
+}
 
 #if APP_HAS_SCD4X
+static void update_scd4x_value(void)
+{
+	int err;
+
 	if (scd == NULL || !device_is_ready(scd))
 	{
 		LOG_WRN("SCD4X device not ready, keeping previous value");
@@ -573,6 +578,15 @@ void update_sensor_values(uint32_t current_cycle)
 			}
 		}
 	}
+}
+#endif
+
+void update_sensor_values(uint32_t current_cycle)
+{
+	update_shtc3_values(current_cycle);
+
+#if APP_HAS_SCD4X
+	update_scd4x_value();
 #endif
 }
 
