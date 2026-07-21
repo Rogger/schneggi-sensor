@@ -1,5 +1,4 @@
 #include <inttypes.h>
-#include <stdlib.h>
 #include <soc.h>
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
@@ -26,6 +25,8 @@
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
+#include "app_measurement_logic.h"
+#include "app_zcl_report.h"
 #include "co2_zcl_logic.h"
 #include "rejoin_logic.h"
 #include "zigbee_signal_logic.h"
@@ -266,69 +267,6 @@ struct report_state
 
 static struct report_state report_state;
 
-static bool report_due_s16(bool valid,
-			   int16_t previous_value,
-			   uint32_t previous_cycle,
-			   int16_t new_value,
-			   int16_t threshold,
-			   uint32_t current_cycle,
-			   uint32_t refresh_cycles)
-{
-	if (!valid)
-	{
-		return true;
-	}
-
-	if ((uint32_t)abs(new_value - previous_value) >= (uint32_t)threshold)
-	{
-		return true;
-	}
-
-	return (current_cycle - previous_cycle) >= refresh_cycles;
-}
-
-static bool report_due_s32(bool valid,
-			   int32_t previous_value,
-			   uint32_t previous_cycle,
-			   int32_t new_value,
-			   int32_t threshold,
-			   uint32_t current_cycle,
-			   uint32_t refresh_cycles)
-{
-	if (!valid)
-	{
-		return true;
-	}
-
-	if ((uint32_t)abs(new_value - previous_value) >= (uint32_t)threshold)
-	{
-		return true;
-	}
-
-	return (current_cycle - previous_cycle) >= refresh_cycles;
-}
-
-static bool report_due_u8(bool valid,
-			  uint8_t previous_value,
-			  uint32_t previous_cycle,
-			  uint8_t new_value,
-			  uint8_t threshold,
-			  uint32_t current_cycle,
-			  uint32_t refresh_cycles)
-{
-	if (!valid)
-	{
-		return true;
-	}
-
-	if ((uint8_t)abs((int)new_value - (int)previous_value) >= threshold)
-	{
-		return true;
-	}
-
-	return (current_cycle - previous_cycle) >= refresh_cycles;
-}
-
 static void init_shtc3_device(void)
 {
 	// Get a device structure from a devicetree node with compatible "sensirion,shtcx".
@@ -483,7 +421,7 @@ static void identify_cb(zb_bufid_t bufid)
 	}
 }
 
-void update_sensor_values(uint32_t current_cycle)
+static void update_shtc3_values(uint32_t current_cycle)
 {
 	int err = 0;
 
@@ -513,7 +451,7 @@ void update_sensor_values(uint32_t current_cycle)
 				measured_temperature = sensor_value_to_double(&temp);
 				temperature_attribute = (int16_t)(measured_temperature * 100);
 				dev_ctx.temp_measure_attrs.measure_value = temperature_attribute;
-				if (report_due_s16(report_state.temp_valid,
+				if (app_report_due_s16(report_state.temp_valid,
 						 report_state.temp_value,
 						 report_state.temp_cycle,
 						 temperature_attribute,
@@ -523,13 +461,8 @@ void update_sensor_values(uint32_t current_cycle)
 				{
 					LOG_INF("Temperature: %.2f °C", measured_temperature);
 
-					zb_zcl_status_t status = zb_zcl_set_attr_val(
-						SCHNEGGI_ENDPOINT,
-						ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
-						ZB_ZCL_CLUSTER_SERVER_ROLE,
-						ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID,
-						(zb_uint8_t *)&temperature_attribute,
-						ZB_FALSE);
+					zb_zcl_status_t status =
+						app_zcl_report_temperature(SCHNEGGI_ENDPOINT, temperature_attribute);
 					if (status != ZB_ZCL_STATUS_SUCCESS)
 					{
 						LOG_ERR("Failed to set temperature attribute: %d", status);
@@ -557,7 +490,7 @@ void update_sensor_values(uint32_t current_cycle)
 				measured_humidity = sensor_value_to_double(&hum);
 				humidity_attribute = (int16_t)(measured_humidity * 100);
 				dev_ctx.humidity_measure_attrs.measure_value = humidity_attribute;
-				if (report_due_s16(report_state.humidity_valid,
+				if (app_report_due_s16(report_state.humidity_valid,
 						 report_state.humidity_value,
 						 report_state.humidity_cycle,
 						 humidity_attribute,
@@ -567,13 +500,8 @@ void update_sensor_values(uint32_t current_cycle)
 				{
 					LOG_INF("Humidity: %.2f RH", measured_humidity);
 
-					zb_zcl_status_t status = zb_zcl_set_attr_val(
-						SCHNEGGI_ENDPOINT,
-						ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
-						ZB_ZCL_CLUSTER_SERVER_ROLE,
-						ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID,
-						(zb_uint8_t *)&humidity_attribute,
-						ZB_FALSE);
+					zb_zcl_status_t status =
+						app_zcl_report_humidity(SCHNEGGI_ENDPOINT, humidity_attribute);
 					if (status != ZB_ZCL_STATUS_SUCCESS)
 					{
 						LOG_ERR("Failed to set humidity attribute: %d", status);
@@ -596,8 +524,13 @@ void update_sensor_values(uint32_t current_cycle)
 			}
 		}
 	}
+}
 
 #if APP_HAS_SCD4X
+static void update_scd4x_value(void)
+{
+	int err;
+
 	if (scd == NULL || !device_is_ready(scd))
 	{
 		LOG_WRN("SCD4X device not ready, keeping previous value");
@@ -637,11 +570,7 @@ void update_sensor_values(uint32_t current_cycle)
 				co2_attribute = co2_zcl_fraction_from_ppm(measured_co2);
 
 				zb_zcl_status_t status =
-					zb_zcl_set_attr_val(SCHNEGGI_ENDPOINT,
-										ZB_ZCL_CLUSTER_ID_CONCENTRATION_MEASUREMENT,
-										ZB_ZCL_CLUSTER_SERVER_ROLE,
-										ZB_ZCL_ATTR_CONCENTRATION_MEASUREMENT_VALUE_ID,
-										(zb_uint8_t *)&co2_attribute, ZB_FALSE);
+					app_zcl_report_co2_fraction(SCHNEGGI_ENDPOINT, co2_attribute);
 				if (status != ZB_ZCL_STATUS_SUCCESS)
 				{
 					LOG_ERR("Failed to set CO2 attribute: %d", status);
@@ -649,85 +578,87 @@ void update_sensor_values(uint32_t current_cycle)
 			}
 		}
 	}
+}
+#endif
+
+void update_sensor_values(uint32_t current_cycle)
+{
+	update_shtc3_values(current_cycle);
+
+#if APP_HAS_SCD4X
+	update_scd4x_value();
 #endif
 }
 
-/** A point in a battery discharge curve sequence.
- *
- * A discharge curve is defined as a sequence of these points, where
- * the first point has #lvl_pptt set to 10000 and the last point has
- * #lvl_pptt set to zero.  Both #lvl_pptt and #lvl_mV should be
- * monotonic decreasing within the sequence.
- */
-struct battery_level_point
+static bool update_battery_voltage_report(int32_t battery_voltage_mv, uint32_t current_cycle)
 {
-	/** Remaining life at #lvl_mV.
-	 * 100 % -> 10000 */
-	uint16_t lvl_pptt;
+	uint8_t battery_attribute = app_battery_voltage_zcl_attribute(battery_voltage_mv);
 
-	/** Battery voltage at #lvl_pptt remaining life. */
-	uint16_t lvl_mV;
-};
+	dev_ctx.power_config_attr.battery_voltage = battery_attribute;
+	if (!app_report_due_s32(report_state.battery_voltage_valid,
+				report_state.battery_voltage_mv,
+				report_state.battery_voltage_cycle,
+				battery_voltage_mv,
+				BATTERY_VOLTAGE_REPORT_THRESHOLD_MV,
+				current_cycle,
+				BATTERY_SLEEP_CYCLES))
+	{
+		LOG_DBG("Battery voltage delta below threshold, skipping report");
+		return true;
+	}
 
-/** Discharge curve for a li-poly battery
- *
- * See https://blog.ampow.com/lipo-voltage-chart/
- */
-static const struct battery_level_point discharge_curve[] = {
-	{10000, 4200},
-	{9500, 4150},
-	{9000, 4110},
-	{8500, 4080},
-	{8000, 4020},
-	{7500, 3980},
-	{7000, 3950},
-	{6500, 3910},
-	{6000, 3870},
-	{5500, 3850},
-	{5000, 3840},
-	{4500, 3820},
-	{4000, 3800},
-	{3500, 3790},
-	{3000, 3770},
-	{2500, 3750},
-	{2000, 3730},
-	{1500, 3710},
-	{1000, 3690},
-	{0500, 3610},
-	{0, 3270},
-};
+	LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x",
+		battery_voltage_mv,
+		battery_attribute);
+	zb_zcl_status_t status_battery_voltage =
+		app_zcl_report_battery_voltage(SCHNEGGI_ENDPOINT, battery_attribute);
+	if (status_battery_voltage)
+	{
+		LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
+		return false;
+	}
 
-/**
- * @brief calculate the battery percentage based on the battery discharge curve
- * @param batt_mV Battery level in millivolts
- * @param curve Pointer to the battery discharge curve struct
- * @return Positive integer with the battery level in percentage
- **/
-unsigned int battery_level_pptt(unsigned int batt_mV,
-								const struct battery_level_point *curve)
+	report_state.battery_voltage_valid = true;
+	report_state.battery_voltage_mv = battery_voltage_mv;
+	report_state.battery_voltage_cycle = current_cycle;
+
+	return true;
+}
+
+static bool update_battery_percentage_report(uint8_t battery_percentage, uint32_t current_cycle)
 {
-	const struct battery_level_point *pb = curve;
+	uint8_t battery_percentage_attribute = app_battery_percentage_zcl_attribute(battery_percentage);
 
-	if (batt_mV >= pb->lvl_mV)
+	dev_ctx.power_config_attr.battery_percentage_remaining = battery_percentage_attribute;
+	if (!app_report_due_u8(report_state.battery_percentage_valid,
+			       report_state.battery_percentage,
+			       report_state.battery_percentage_cycle,
+			       battery_percentage,
+			       BATTERY_PERCENT_REPORT_THRESHOLD,
+			       current_cycle,
+			       BATTERY_SLEEP_CYCLES))
 	{
-		/* Measured voltage above highest point, cap at maximum. */
-		return pb->lvl_pptt;
-	}
-	/* Go down to the last point at or below the measured voltage. */
-	while ((pb->lvl_pptt > 0) && (batt_mV < pb->lvl_mV))
-	{
-		++pb;
-	}
-	if (batt_mV < pb->lvl_mV)
-	{
-		/* Below lowest point, cap at minimum */
-		return pb->lvl_pptt;
+		LOG_DBG("Battery percentage delta below threshold, skipping report");
+		return true;
 	}
 
-	/* Linear interpolation between below and above points. */
-	const struct battery_level_point *pa = pb - 1;
+	LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x",
+		battery_percentage,
+		battery_percentage_attribute);
+	zb_zcl_status_t status_battery_percentage =
+		app_zcl_report_battery_percentage(SCHNEGGI_ENDPOINT,
+						  battery_percentage_attribute);
+	if (status_battery_percentage)
+	{
+		LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
+		return false;
+	}
 
-	return pb->lvl_pptt + ((pa->lvl_pptt - pb->lvl_pptt) * (batt_mV - pb->lvl_mV) / (pa->lvl_mV - pb->lvl_mV));
+	report_state.battery_percentage_valid = true;
+	report_state.battery_percentage = battery_percentage;
+	report_state.battery_percentage_cycle = current_cycle;
+
+	return true;
 }
 
 void update_battery(uint32_t current_cycle)
@@ -779,7 +710,7 @@ void update_battery(uint32_t current_cycle)
 		else
 		{
 
-			int32_t battery_voltage_mv = val_mv * (1500000 + 180000) / 180000;
+			int32_t battery_voltage_mv = app_battery_millivolts_from_adc(val_mv);
 
 			if (i == 0)
 			{
@@ -789,71 +720,15 @@ void update_battery(uint32_t current_cycle)
 					goto cleanup;
 				}
 
-				uint8_t battery_attribute = (uint8_t)(battery_voltage_mv / 100);
-				dev_ctx.power_config_attr.battery_voltage = battery_attribute;
-				if (report_due_s32(report_state.battery_voltage_valid,
-						 report_state.battery_voltage_mv,
-						 report_state.battery_voltage_cycle,
-						 battery_voltage_mv,
-						 BATTERY_VOLTAGE_REPORT_THRESHOLD_MV,
-						 current_cycle,
-						 BATTERY_SLEEP_CYCLES))
+				if (!update_battery_voltage_report(battery_voltage_mv, current_cycle))
 				{
-					LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x", battery_voltage_mv, battery_attribute);
-					zb_zcl_status_t status_battery_voltage = zb_zcl_set_attr_val(
-						SCHNEGGI_ENDPOINT,
-						ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
-						ZB_ZCL_CLUSTER_SERVER_ROLE,
-						ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID,
-						(zb_uint8_t *)&battery_attribute,
-						ZB_FALSE);
-					if (status_battery_voltage)
-					{
-						LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
-						goto cleanup;
-					}
-
-					report_state.battery_voltage_valid = true;
-					report_state.battery_voltage_mv = battery_voltage_mv;
-					report_state.battery_voltage_cycle = current_cycle;
-				}
-				else
-				{
-					LOG_DBG("Battery voltage delta below threshold, skipping report");
+					goto cleanup;
 				}
 
-				uint32_t battery_percentage = battery_level_pptt(battery_voltage_mv, discharge_curve) / 100;
-				uint8_t battery_percentage_attribute = (uint8_t)(battery_percentage * 2); // 3.3.2.2.3.2
-				dev_ctx.power_config_attr.battery_percentage_remaining = battery_percentage_attribute;
-				if (report_due_u8(report_state.battery_percentage_valid,
-						report_state.battery_percentage,
-						report_state.battery_percentage_cycle,
-						(uint8_t)battery_percentage,
-						BATTERY_PERCENT_REPORT_THRESHOLD,
-						current_cycle,
-						BATTERY_SLEEP_CYCLES))
+				uint8_t battery_percentage = app_battery_percentage_from_mv((uint32_t)battery_voltage_mv);
+				if (!update_battery_percentage_report(battery_percentage, current_cycle))
 				{
-					LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x", battery_percentage, battery_percentage_attribute);
-					zb_zcl_status_t status_battery_percentage = zb_zcl_set_attr_val(
-						SCHNEGGI_ENDPOINT,
-						ZB_ZCL_CLUSTER_ID_POWER_CONFIG,
-						ZB_ZCL_CLUSTER_SERVER_ROLE,
-						ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID,
-						(zb_uint8_t *)&battery_percentage_attribute,
-						ZB_FALSE);
-					if (status_battery_percentage)
-					{
-						LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
-						goto cleanup;
-					}
-
-					report_state.battery_percentage_valid = true;
-					report_state.battery_percentage = (uint8_t)battery_percentage;
-					report_state.battery_percentage_cycle = current_cycle;
-				}
-				else
-				{
-					LOG_DBG("Battery percentage delta below threshold, skipping report");
+					goto cleanup;
 				}
 			}
 		}

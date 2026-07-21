@@ -1,0 +1,13 @@
+#ifndef ZB_ZCL_POWER_CONFIG_H_
+#define ZB_ZCL_POWER_CONFIG_H_
+
+#include <zboss_api.h>
+
+#define ZB_ZCL_CLUSTER_ID_POWER_CONFIG ((zb_uint16_t)0x0001U)
+
+enum zb_zcl_power_config_attr_e {
+	ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_VOLTAGE_ID = 0x0020,
+	ZB_ZCL_ATTR_POWER_CONFIG_BATTERY_PERCENTAGE_REMAINING_ID = 0x0021,
+};
+
+#endif /* ZB_ZCL_POWER_CONFIG_H_ */

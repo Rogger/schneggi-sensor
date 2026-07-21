@@ -25,8 +25,11 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 	switch (signal)
 	{
 	case APP_ZIGBEE_SIGNAL_SKIP_STARTUP:
-		state->stack_initialised = true;
-		actions->commissioning_mode = APP_COMMISSIONING_INITIALIZATION;
+		if (status_ok)
+		{
+			state->stack_initialised = true;
+			actions->commissioning_mode = APP_COMMISSIONING_INITIALIZATION;
+		}
 		break;
 
 	case APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START:
