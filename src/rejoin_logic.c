@@ -76,6 +76,11 @@ void app_rejoin_start(struct app_rejoin_state *state,
 		return;
 	}
 
+	/* A new disconnection supersedes a stop whose alarm cancellation failed.
+	 * Reuse any pending alarm instead of dropping this request or duplicating it.
+	 */
+	state->stop_requested = false;
+
 	if (!state->procedure_started) {
 		state->procedure_started = true;
 		state->stop_requested = false;
@@ -99,6 +104,25 @@ void app_rejoin_mark_retry_pending(struct app_rejoin_state *state)
 void app_rejoin_mark_retry_fired(struct app_rejoin_state *state)
 {
 	state->retry_pending = false;
+}
+
+bool app_rejoin_begin_retry(struct app_rejoin_state *state,
+			    bool stack_initialised,
+			    bool joined,
+			    struct app_rejoin_outcome *outcome)
+{
+	app_rejoin_outcome_reset(outcome);
+	app_rejoin_mark_retry_fired(state);
+
+	if (!state->procedure_started) {
+		return false;
+	}
+	if (state->stop_requested || joined) {
+		app_rejoin_state_reset(state);
+		outcome->log_stopped = true;
+		return false;
+	}
+	return stack_initialised;
 }
 
 void app_rejoin_stop(struct app_rejoin_state *state,

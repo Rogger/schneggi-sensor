@@ -4,7 +4,20 @@ on:
   pull_request:
 
 jobs:
-  build-and-test-in-docker:
+  unit-tests:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run host unit tests
+        run: |
+          cmake -S tests/unit -B tests/unit/build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          cmake --build tests/unit/build
+          ctest --test-dir tests/unit/build --output-on-failure
+
+  build-firmware:
     runs-on: ubuntu-22.04
     container: ghcr.io/nrfconnect/sdk-nrf-toolchain:v2.9.2
     defaults:
@@ -23,25 +36,26 @@ jobs:
           west init -l sensor
           west update -o=--depth=1 -n
 
-      - name: Install host compiler for unit tests
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends gcc libc6-dev
-
-      - name: Run unit tests
+      - name: Build all firmware profiles
         working-directory: sensor
         run: |
-          cmake -G Ninja -S tests/unit -B tests/unit/build
-          cmake --build tests/unit/build
-          ctest --test-dir tests/unit/build --output-on-failure
-
-      - name: Build debug release
-        working-directory: sensor
-        run: |
-          west build --build-dir $(pwd)/build $(pwd) --pristine --board adafruit_feather_nrf52840 -- -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT=$(pwd) -DCONFIG_DEBUG_OPTIMIZATIONS=y -DCONFIG_DEBUG_THREAD_INFO=y -DCONF_FILE=$(pwd)/prj_debug.conf -DDTC_OVERLAY_FILE=$(pwd)/boards/adafruit_feather_nrf52840.overlay
+          for profile in debug production; do
+            for variant in co2 no_scd4x; do
+              conf="prj_${profile}.conf"
+              overlay="boards/adafruit_feather_nrf52840.overlay"
+              if [ "$variant" = no_scd4x ]; then
+                conf="prj_${profile}_no_scd4x.conf"
+                overlay="$overlay;boards/no_scd4x.overlay"
+              fi
+              west build -d "build_${profile}_${variant}" -b adafruit_feather_nrf52840 . -- \
+                -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$PWD" \
+                -DCONF_FILE="$conf" -DDTC_OVERLAY_FILE="$overlay"
+            done
+          done
       
-      - name: Store debug release
+      - name: Store firmware
         uses: actions/upload-artifact@v4
         with:
           name: built-applications
-          path: sensor/**/zephyr/merged.hex
+          path: sensor/build_*/merged.hex
+          if-no-files-found: error

@@ -7,9 +7,7 @@
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/settings/settings.h>
 #include <zephyr/sys/util.h>
-#include <dk_buttons_and_leds.h>
 #include <ram_pwrdn.h>
 
 #include <zboss_api.h>
@@ -229,17 +227,18 @@ ZBOSS_DECLARE_DEVICE_CTX_1_EP(
 static const struct adc_dt_spec adc_channels[] = {
 	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels, DT_SPEC_AND_COMMA)};
 
-const struct device *shtc3;
+static const struct device *shtc3;
 
 #define LED_NODE DT_ALIAS(led)
-const struct gpio_dt_spec led_spec = GPIO_DT_SPEC_GET(LED_NODE, gpios);
+static const struct gpio_dt_spec led_spec = GPIO_DT_SPEC_GET(LED_NODE, gpios);
 
-uint16_t buf;
-struct adc_sequence sequence = {
+static uint16_t buf;
+static struct adc_sequence sequence = {
 	.buffer = &buf,
 	.buffer_size = sizeof(buf)};
 
-struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
+static const struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
+static bool battery_monitor_ready;
 
 #if APP_HAS_SCD4X
 static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd4x);
@@ -287,7 +286,7 @@ static void init_shtc3_device(void)
 	LOG_DBG("Found device %s.", shtc3->name);
 }
 
-void init_scd4x_device(void)
+static void init_scd4x_device(void)
 {
 	if (!APP_HAS_SCD4X)
 	{
@@ -305,9 +304,20 @@ void init_scd4x_device(void)
 	}
 }
 
-void init_adc()
+static void init_adc(void)
 {
 	int err;
+	if (!gpio_is_ready_dt(&battery_monitor_enable))
+	{
+		LOG_ERR("Battery monitor GPIO not ready");
+		return;
+	}
+	err = gpio_pin_configure_dt(&battery_monitor_enable, GPIO_OUTPUT_INACTIVE);
+	if (err < 0)
+	{
+		LOG_ERR("Could not configure battery monitor GPIO (%d)", err);
+		return;
+	}
 	/* Configure channels individually prior to sampling. */
 	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++)
 	{
@@ -325,7 +335,7 @@ void init_adc()
 		}
 	}
 
-	gpio_pin_configure_dt(&battery_monitor_enable, GPIO_OUTPUT);
+	battery_monitor_ready = true;
 }
 
 /**@brief Function for initializing all clusters attributes.
@@ -450,7 +460,6 @@ static void update_shtc3_values(uint32_t current_cycle)
 			{
 				measured_temperature = sensor_value_to_double(&temp);
 				temperature_attribute = (int16_t)(measured_temperature * 100);
-				dev_ctx.temp_measure_attrs.measure_value = temperature_attribute;
 				if (app_report_due_s16(report_state.temp_valid,
 						 report_state.temp_value,
 						 report_state.temp_cycle,
@@ -489,7 +498,6 @@ static void update_shtc3_values(uint32_t current_cycle)
 			{
 				measured_humidity = sensor_value_to_double(&hum);
 				humidity_attribute = (int16_t)(measured_humidity * 100);
-				dev_ctx.humidity_measure_attrs.measure_value = humidity_attribute;
 				if (app_report_due_s16(report_state.humidity_valid,
 						 report_state.humidity_value,
 						 report_state.humidity_cycle,
@@ -581,7 +589,7 @@ static void update_scd4x_value(void)
 }
 #endif
 
-void update_sensor_values(uint32_t current_cycle)
+static void update_sensor_values(uint32_t current_cycle)
 {
 	update_shtc3_values(current_cycle);
 
@@ -594,7 +602,6 @@ static bool update_battery_voltage_report(int32_t battery_voltage_mv, uint32_t c
 {
 	uint8_t battery_attribute = app_battery_voltage_zcl_attribute(battery_voltage_mv);
 
-	dev_ctx.power_config_attr.battery_voltage = battery_attribute;
 	if (!app_report_due_s32(report_state.battery_voltage_valid,
 				report_state.battery_voltage_mv,
 				report_state.battery_voltage_cycle,
@@ -629,7 +636,6 @@ static bool update_battery_percentage_report(uint8_t battery_percentage, uint32_
 {
 	uint8_t battery_percentage_attribute = app_battery_percentage_zcl_attribute(battery_percentage);
 
-	dev_ctx.power_config_attr.battery_percentage_remaining = battery_percentage_attribute;
 	if (!app_report_due_u8(report_state.battery_percentage_valid,
 			       report_state.battery_percentage,
 			       report_state.battery_percentage_cycle,
@@ -661,12 +667,21 @@ static bool update_battery_percentage_report(uint8_t battery_percentage, uint32_
 	return true;
 }
 
-void update_battery(uint32_t current_cycle)
+static void update_battery(uint32_t current_cycle)
 {
 	int err;
+	if (!battery_monitor_ready)
+	{
+		return;
+	}
 
 	// Enable battery measurement
-	gpio_pin_set_dt(&battery_monitor_enable, 1);
+	err = gpio_pin_set_dt(&battery_monitor_enable, 1);
+	if (err < 0)
+	{
+		LOG_ERR("Could not enable battery monitor (%d)", err);
+		return;
+	}
 	k_sleep(K_MSEC(1));
 
 	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++)
@@ -677,7 +692,12 @@ void update_battery(uint32_t current_cycle)
 				adc_channels[i].dev->name,
 				adc_channels[i].channel_id);
 
-		(void)adc_sequence_init_dt(&adc_channels[i], &sequence);
+		err = adc_sequence_init_dt(&adc_channels[i], &sequence);
+		if (err < 0)
+		{
+			LOG_ERR("Could not initialize ADC sequence (%d)", err);
+			continue;
+		}
 
 		err = adc_read(adc_channels[i].dev, &sequence);
 		if (err < 0)
@@ -735,7 +755,11 @@ void update_battery(uint32_t current_cycle)
 	}
 cleanup:
 	// Disable battery measurement
-	gpio_pin_set_dt(&battery_monitor_enable, 0);
+	err = gpio_pin_set_dt(&battery_monitor_enable, 0);
+	if (err < 0)
+	{
+		LOG_ERR("Could not disable battery monitor (%d)", err);
+	}
 }
 
 static uint32_t battery_cycles = 0;
@@ -774,8 +798,7 @@ static void sensor_loop(zb_bufid_t bufid)
 	LOG_DBG("Sleep for %" PRIu32 " seconds", SLEEP_INTERVAL_SECONDS);
 }
 
-bool joining_signal_received = false;
-bool stack_initialised = false;
+static struct app_zigbee_state app_state;
 
 static void start_network_steering(zb_uint8_t param);
 static void execute_rejoin_outcome(const struct app_rejoin_outcome *outcome)
@@ -816,13 +839,17 @@ static void start_network_steering(zb_uint8_t param)
 
 	ZVUNUSED(param);
 
-	app_rejoin_mark_retry_fired(&rejoin_state);
+	if (!app_rejoin_begin_retry(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome))
+	{
+		execute_rejoin_outcome(&outcome);
+		return;
+	}
 	LOG_INF("Starting network steering retry");
 
 	if (bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING) != ZB_TRUE)
 	{
 		LOG_WRN("Failed to start network steering, scheduling next retry");
-		app_rejoin_process(&rejoin_state, stack_initialised, ZB_JOINED(), &outcome);
+		app_rejoin_process(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome);
 		execute_rejoin_outcome(&outcome);
 	}
 }
@@ -831,7 +858,7 @@ static void start_network_rejoin(void)
 {
 	struct app_rejoin_outcome outcome;
 
-	app_rejoin_start(&rejoin_state, stack_initialised, ZB_JOINED(), &outcome);
+	app_rejoin_start(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome);
 	execute_rejoin_outcome(&outcome);
 }
 
@@ -851,10 +878,6 @@ static void execute_signal_actions(const struct app_zigbee_actions *actions)
 	if (actions->commissioning_mode == APP_COMMISSIONING_INITIALIZATION)
 	{
 		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
-	}
-	else if (actions->commissioning_mode == APP_COMMISSIONING_NETWORK_STEERING)
-	{
-		comm_status = bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING);
 	}
 
 	if (actions->commissioning_mode != APP_COMMISSIONING_NONE &&
@@ -901,10 +924,6 @@ void zboss_signal_handler(zb_uint8_t param)
 	zb_zdo_app_signal_hdr_t *p_sg_p = NULL;
 	zb_zdo_app_signal_type_t sig = zb_get_app_signal(param, &p_sg_p);
 	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(param);
-	struct app_zigbee_state app_state = {
-		.joining_signal_received = joining_signal_received,
-		.stack_initialised = stack_initialised,
-	};
 	struct app_zigbee_actions actions;
 	bool status_ok = (status == RET_OK);
 
@@ -1050,9 +1069,6 @@ void zboss_signal_handler(zb_uint8_t param)
 		LOG_INF("Unhandled signal %d. Status: %d", sig, status);
 		break;
 	}
-
-	joining_signal_received = app_state.joining_signal_received;
-	stack_initialised = app_state.stack_initialised;
 
 	if (param)
 	{

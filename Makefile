@@ -101,6 +101,11 @@ test:
 	@ctest --test-dir tests/unit/build --output-on-failure
 
 clean:
+	@case "$(realpath $(BUILD_DIR_ABS))" in \
+		"" ) ;; \
+		"$(realpath $(APP_DIR))"/build_*|"$(realpath $(APP_DIR))"/build) ;; \
+		* ) echo "Refusing to clean outside a project build directory: $(BUILD_DIR_ABS)"; exit 1 ;; \
+	esac
 	@if [ -d "$(BUILD_DIR_ABS)" ]; then \
 		rm -rf "$(BUILD_DIR_ABS)"; \
 		echo "Removed $(BUILD_DIR_ABS)"; \
@@ -114,7 +119,8 @@ erase:
 flash:
 	@$(NRFJPROG) -f NRF52 --snr $(SNR) --sectorerase --program "$(HEX)" --verify --reset
 
-erase-and-flash: erase flash
+erase-and-flash: erase
+	@$(MAKE) flash
 
 flash-debug: BUILD_DIR=build_debug
 flash-debug: flash

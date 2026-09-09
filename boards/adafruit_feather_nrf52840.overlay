@@ -6,6 +6,10 @@
 
 	vbatt {
 		compatible = "voltage-divider";
+		/* The application owns ADC sampling and power-gpios. Prevent the
+		 * generic sensor driver from also configuring/enabling the divider.
+		 */
+		status = "disabled";
 		io-channels = <&adc 0>;
 		output-ohms = <180000>;
 		full-ohms = <(1500000 + 180000)>;
@@ -40,17 +44,12 @@
 	pinctrl-0 = <&i2c1_default>;
 	pinctrl-1 = <&i2c1_sleep>;
 	pinctrl-names = "default", "sleep";
-	clock-frequency = <100000>;
+	clock-frequency = <I2C_BITRATE_STANDARD>;
 	shtcx@70 {
 		compatible = "sensirion,shtcx";
 		reg = <0x70>;
 		measure-mode = "normal"; // low power mode has reduced accuracy
 	};
-};
-
-&i2c1 {
-	status = "okay";
-	clock-frequency = <I2C_BITRATE_STANDARD>;
 	
 	scd4x@62 {
 		status = "okay";

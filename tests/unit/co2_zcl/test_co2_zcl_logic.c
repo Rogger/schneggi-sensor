@@ -72,8 +72,27 @@ static void test_min_max_validators(void)
 	assert(!co2_zcl_is_valid_max_raw(co2_zcl_single_from_float(0.4f), co2_zcl_single_from_float(0.5f)));
 }
 
+static void test_nonfinite_values_and_equal_limits(void)
+{
+	const uint32_t nan_raw = co2_zcl_single_from_float(NAN);
+	const uint32_t half_raw = co2_zcl_single_from_float(0.5f);
+	const uint32_t infinities[] = { 0x7F800000U, 0xFF800000U };
+	for (unsigned int i = 0; i < 2; ++i) {
+		assert(!co2_zcl_is_valid_measured_raw(infinities[i], nan_raw, nan_raw));
+		assert(!co2_zcl_is_valid_min_raw(infinities[i], nan_raw));
+		assert(!co2_zcl_is_valid_max_raw(infinities[i], nan_raw));
+	}
+	assert(!co2_zcl_is_valid_min_raw(half_raw, half_raw));
+	assert(!co2_zcl_is_valid_max_raw(half_raw, half_raw));
+	assert(co2_zcl_is_valid_measured_raw(half_raw, half_raw, half_raw));
+	assert(isnan(co2_zcl_fraction_from_ppm(NAN)));
+	assert(co2_zcl_fraction_from_ppm(INFINITY) == 1.0f);
+	assert(co2_zcl_fraction_from_ppm(-INFINITY) == 0.0f);
+}
+
 int main(void)
 {
+	test_nonfinite_values_and_equal_limits();
 	test_fraction_from_ppm_clamps_and_scales();
 	test_single_helpers();
 	test_measured_validator_accepts_nan_and_enforces_range();

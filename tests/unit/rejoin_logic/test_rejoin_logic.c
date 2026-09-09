@@ -131,8 +131,97 @@ static void test_stop_defers_until_next_process_when_cancel_fails(void)
 	assert(state.attempt_count == 0U);
 }
 
+static void test_retry_callback_honors_deferred_stop(void)
+{
+	struct app_rejoin_state state = {0};
+	struct app_rejoin_outcome outcome;
+
+	app_rejoin_start(&state, true, false, &outcome);
+	app_rejoin_mark_retry_pending(&state);
+	app_rejoin_stop(&state, false, &outcome);
+	assert(!app_rejoin_begin_retry(&state, true, false, &outcome));
+	assert(outcome.log_stopped);
+	assert(!state.procedure_started);
+	assert(!state.retry_pending);
+	assert(!state.stop_requested);
+
+	/* A later disconnection starts a fresh backoff. */
+	app_rejoin_start(&state, true, false, &outcome);
+	assert(outcome.retry_delay_s == 1U);
+}
+
+static void test_retry_callback_checks_current_connection(void)
+{
+	struct app_rejoin_state state = {0};
+	struct app_rejoin_outcome outcome;
+
+	assert(!app_rejoin_begin_retry(&state, true, false, &outcome));
+	app_rejoin_start(&state, true, false, &outcome);
+	app_rejoin_mark_retry_pending(&state);
+	assert(!app_rejoin_begin_retry(&state, true, true, &outcome));
+	assert(outcome.log_stopped);
+	assert(!state.procedure_started);
+
+	app_rejoin_start(&state, true, false, &outcome);
+	app_rejoin_mark_retry_pending(&state);
+	assert(app_rejoin_begin_retry(&state, true, false, &outcome));
+	assert(!state.retry_pending);
+	assert(state.attempt_count == 1U);
+	assert_no_outcome(&outcome);
+	/* Failure to start commissioning must advance to the next retry. */
+	app_rejoin_process(&state, true, false, &outcome);
+	assert(outcome.retry_delay_s == 2U);
+	assert(!app_rejoin_begin_retry(&state, false, false, &outcome));
+}
+
+static void test_backoff_remains_capped(void)
+{
+	struct app_rejoin_state state = {0};
+	struct app_rejoin_outcome outcome;
+	app_rejoin_start(&state, true, false, &outcome);
+	for (unsigned int i = 0; i < 300; ++i) {
+		assert(outcome.schedule_retry);
+		assert(outcome.retry_delay_s <= APP_REJOIN_INTERVAL_MAX_S);
+		app_rejoin_mark_retry_pending(&state);
+		assert(app_rejoin_begin_retry(&state, true, false, &outcome));
+		app_rejoin_process(&state, true, false, &outcome);
+	}
+	assert(outcome.retry_delay_s == APP_REJOIN_INTERVAL_MAX_S);
+}
+
+static void test_new_rejoin_request_supersedes_deferred_stop(void)
+{
+	struct app_rejoin_state state = {0};
+	struct app_rejoin_outcome outcome;
+	app_rejoin_start(&state, true, false, &outcome);
+	app_rejoin_mark_retry_pending(&state);
+	app_rejoin_stop(&state, false, &outcome);
+	app_rejoin_start(&state, true, false, &outcome);
+	assert(!outcome.schedule_retry);
+	assert(state.retry_pending);
+	assert(app_rejoin_begin_retry(&state, true, false, &outcome));
+}
+
+static void test_uninitialised_and_inactive_requests_are_ignored(void)
+{
+	struct app_rejoin_state state = {0};
+	struct app_rejoin_outcome outcome;
+	app_rejoin_start(&state, false, false, &outcome);
+	assert_no_outcome(&outcome);
+	assert(!state.procedure_started);
+	app_rejoin_process(&state, true, false, &outcome);
+	assert_no_outcome(&outcome);
+	app_rejoin_stop(&state, true, &outcome);
+	assert_no_outcome(&outcome);
+}
+
 int main(void)
 {
+	test_new_rejoin_request_supersedes_deferred_stop();
+	test_uninitialised_and_inactive_requests_are_ignored();
+	test_retry_callback_honors_deferred_stop();
+	test_retry_callback_checks_current_connection();
+	test_backoff_remains_capped();
 	test_start_schedules_first_retry();
 	test_joined_start_is_ignored_without_force();
 	test_pending_retry_blocks_duplicate_schedule();

@@ -90,6 +90,13 @@ make flash-production-co2
 make test
 ```
 
+The host tests cover reporting thresholds and counter wraparound, battery conversion,
+CO2 attribute validation, Zigbee signal handling, and rejoin retry/cancellation behavior.
+CI runs them in Debug and Release and builds all four firmware profiles. ADC/GPIO
+behavior, network recovery over the radio, and sleep current still require hardware tests.
+
+`make clean` accepts only `build` or `build_*` directories inside this project.
+
 ### 4) Flash
 
 ```bash
