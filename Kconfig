@@ -1,5 +1,10 @@
 source "Kconfig.zephyr"
 
+config APP_REJOIN_INTERVAL_MAX_SECONDS
+  int "Maximum network rejoin retry interval in seconds"
+  range 900 3600
+  default 900
+
 config SENSOR_UPDATE_INTERVAL_MINUTES
   int "Sensor update interval in minutes"
   range 1 1440

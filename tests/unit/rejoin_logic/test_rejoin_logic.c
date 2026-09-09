@@ -77,7 +77,7 @@ static void test_retry_delay_caps_at_maximum(void)
 		.procedure_started = true,
 		.stop_requested = false,
 		.retry_pending = false,
-		.attempt_count = 10U,
+		.attempt_count = 12U,
 	};
 	struct app_rejoin_outcome outcome;
 
@@ -85,7 +85,7 @@ static void test_retry_delay_caps_at_maximum(void)
 
 	assert(outcome.schedule_retry == true);
 	assert(outcome.retry_delay_s == APP_REJOIN_INTERVAL_MAX_S);
-	assert(state.attempt_count == 10U);
+	assert(state.attempt_count == 12U);
 }
 
 static void test_stop_clears_state_when_cancel_succeeds(void)
@@ -217,6 +217,26 @@ static void test_uninitialised_and_inactive_requests_are_ignored(void)
 
 int main(void)
 {
+	/* Check every early retry and the transition to the configured cap,
+	 * then verify a successful stop restores fast recovery next time.
+	 */
+	struct app_rejoin_state state = {0};
+	struct app_rejoin_outcome outcome;
+	for (unsigned int i = 0; i < 16; ++i) {
+		uint32_t expected = 1U << i;
+		if (expected > APP_REJOIN_INTERVAL_MAX_S) {
+			expected = APP_REJOIN_INTERVAL_MAX_S;
+		}
+		app_rejoin_start(&state, true, false, &outcome);
+		assert(outcome.schedule_retry);
+		assert(outcome.retry_delay_s == expected);
+		app_rejoin_mark_retry_pending(&state);
+		assert(app_rejoin_begin_retry(&state, true, false, &outcome));
+	}
+	app_rejoin_stop(&state, true, &outcome);
+	app_rejoin_start(&state, true, false, &outcome);
+	assert(outcome.retry_delay_s == 1U);
+
 	test_new_rejoin_request_supersedes_deferred_stop();
 	test_uninitialised_and_inactive_requests_are_ignored();
 	test_retry_callback_honors_deferred_stop();

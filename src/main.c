@@ -6,6 +6,8 @@
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/pm/device_runtime.h>
+#include "app_shtc3.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
 #include <ram_pwrdn.h>
@@ -228,6 +230,8 @@ static const struct adc_dt_spec adc_channels[] = {
 	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels, DT_SPEC_AND_COMMA)};
 
 static const struct device *shtc3;
+static const struct i2c_dt_spec shtc3_bus =
+	I2C_DT_SPEC_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(sensirion_shtcx));
 
 #define LED_NODE DT_ALIAS(led)
 static const struct gpio_dt_spec led_spec = GPIO_DT_SPEC_GET(LED_NODE, gpios);
@@ -441,7 +445,7 @@ static void update_shtc3_values(uint32_t current_cycle)
 	}
 	else
 	{
-		err = sensor_sample_fetch(shtc3);
+		err = app_shtc3_sample_fetch(shtc3, &shtc3_bus);
 		if (err)
 		{
 			LOG_WRN("Failed to fetch sample from SHTC3: %d, keeping previous values", err);
@@ -1079,6 +1083,16 @@ void zboss_signal_handler(zb_uint8_t param)
 int main(void)
 {
 	LOG_INF("Schneggi sensor starting...");
+
+	/* Only the non-CO2 profiles enable runtime PM. TWIM takes/releases a
+	 * runtime reference for each transfer, including sensor sleep cleanup.
+	 */
+	if (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME)) {
+		int err = pm_device_runtime_enable(shtc3_bus.bus);
+		if (err < 0) {
+			LOG_ERR("Could not enable I2C runtime PM (%d)", err);
+		}
+	}
 
 	init_shtc3_device();
 

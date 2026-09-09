@@ -4,7 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef CONFIG_APP_REJOIN_INTERVAL_MAX_SECONDS
+#define APP_REJOIN_INTERVAL_MAX_S ((uint32_t)CONFIG_APP_REJOIN_INTERVAL_MAX_SECONDS)
+#else
 #define APP_REJOIN_INTERVAL_MAX_S (15U * 60U)
+#endif
 
 struct app_rejoin_state {
 	bool procedure_started;
