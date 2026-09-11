@@ -69,6 +69,9 @@ This initializes a west workspace in the parent directory and fetches all requir
 
 The Makefile uses the parent west workspace when `../.west` exists. To use a
 different NCS workspace, pass `NCS_WORKSPACE=/path/to/workspace`.
+Builds compare the cached sysbuild source with the selected NCS workspace and
+regenerate incompatible project build directories automatically. West's
+automatic pristine mode handles other cache incompatibilities.
 
 ### 2) Build
 
