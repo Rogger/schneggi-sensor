@@ -16,3 +16,8 @@ target_include_directories(rejoin_logic_tests PRIVATE
 target_compile_features(rejoin_logic_tests PRIVATE c_std_99)
 
 add_test(NAME rejoin_logic_tests COMMAND rejoin_logic_tests)
+
+add_executable(rejoin_battery_tests test_rejoin_logic.c ../../../src/rejoin_logic.c)
+target_include_directories(rejoin_battery_tests PRIVATE ../../../include)
+target_compile_definitions(rejoin_battery_tests PRIVATE CONFIG_APP_REJOIN_INTERVAL_MAX_SECONDS=3600)
+add_test(NAME rejoin_battery_tests COMMAND rejoin_battery_tests)

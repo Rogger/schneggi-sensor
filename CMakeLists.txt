@@ -11,6 +11,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project("Schneggi Sensor")
 
 target_sources(app PRIVATE
+	src/app_shtc3.c
 	src/app_measurement_logic.c
 	src/app_zcl_report.c
 	src/co2_zcl_logic.c

@@ -11,6 +11,32 @@ A low-power ZigBee sensor integrated with HomeAssistant for monitoring temperatu
 - Small footprint (3,5cm x 3cm )
 - Tested with [Home Assistant](https://www.home-assistant.io/) and [SkyConnect](https://www.home-assistant.io/skyconnect/)
 
+## Battery power management
+
+The non-CO2 debug and production profiles enable I2C runtime power management.
+The application enables it on the sensor bus; the TWIM driver suspends the
+controller and applies its sleep pin configuration between transfers.
+Polling, sampling intervals, and SHTC3 measurement accuracy are unchanged.
+
+Failed SHTC3 fetches attempt a sleep command after a 13 ms settling delay,
+working around the NCS 2.9.2 driver's missing error-path cleanup without changing
+the shared SDK. Cleanup is best-effort: an inaccessible sensor cannot be forced
+to sleep. The original fetch error is retained and no failed sample is reported.
+The command and conversion timing follow the
+[SHTC3 datasheet](https://sensirion.com/file/datasheet_shtc3).
+
+Battery-profile rejoin delays grow from 1 second exponentially to a one-hour
+cap (1, 2, 4, ..., 1024, 2048, 3600 seconds). Successful reconnection resets the
+backoff. After prolonged outages, recovery may therefore wait up to an hour
+before the next attempt, plus commissioning time. USB-powered CO2 profiles keep
+their 15-minute cap and do not enable I2C runtime PM.
+
+Validate on hardware before relying on battery-life estimates: compare at least
+an hour of production-profile current capture before/after, with the debugger
+disconnected; check repeated sensor reads, transient I2C failures, and recovery
+after a prolonged coordinator outage. Host tests cannot verify physical sleep
+current or bus suspend/resume behavior.
+
 ## PCB
 The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All relevant files can be found in the [repo](hardware)
 
@@ -43,6 +69,9 @@ This initializes a west workspace in the parent directory and fetches all requir
 
 The Makefile uses the parent west workspace when `../.west` exists. To use a
 different NCS workspace, pass `NCS_WORKSPACE=/path/to/workspace`.
+Builds compare the cached sysbuild source with the selected NCS workspace and
+regenerate incompatible project build directories automatically. West's
+automatic pristine mode handles other cache incompatibilities.
 
 ### 2) Build
 
@@ -89,6 +118,13 @@ make flash-production-co2
 ```bash
 make test
 ```
+
+The host tests cover reporting thresholds and counter wraparound, battery conversion,
+CO2 attribute validation, Zigbee signal handling, and rejoin retry/cancellation behavior.
+CI runs them in Debug and Release and builds all four firmware profiles. ADC/GPIO
+behavior, network recovery over the radio, and sleep current still require hardware tests.
+
+`make clean` accepts only `build` or `build_*` directories inside this project.
 
 ### 4) Flash
 

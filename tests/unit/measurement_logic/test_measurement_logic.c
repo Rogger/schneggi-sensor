@@ -71,8 +71,35 @@ static void test_battery_attribute_conversions(void)
 	assert(app_battery_percentage_zcl_attribute(200U) == 200U);
 }
 
+static void test_report_cycle_wraparound_and_extreme_deltas(void)
+{
+	assert(!app_report_due_s16(true, 0, UINT32_MAX - 4U, 0, 1, 4U, 10U));
+	assert(app_report_due_s16(true, 0, UINT32_MAX - 4U, 0, 1, 5U, 10U));
+	assert(!app_report_due_s32(true, 0, UINT32_MAX - 4U, 0, 1, 4U, 10U));
+	assert(app_report_due_s32(true, 0, UINT32_MAX - 4U, 0, 1, 5U, 10U));
+	assert(!app_report_due_u8(true, 0, UINT32_MAX - 4U, 0, 1, 4U, 10U));
+	assert(app_report_due_u8(true, 0, UINT32_MAX - 4U, 0, 1, 5U, 10U));
+	assert(app_report_due_s32(true, INT32_MIN, 0, INT32_MAX, INT32_MAX, 0, 10));
+	assert(app_report_due_s32(true, INT32_MAX, 0, INT32_MIN, INT32_MAX, 0, 10));
+	assert(app_report_due_s16(true, INT16_MIN, 0, INT16_MAX, INT16_MAX, 0, 10));
+	assert(app_report_due_s16(true, INT16_MAX, 0, INT16_MIN, INT16_MAX, 0, 10));
+}
+
+static void test_battery_curve_is_monotonic_and_bounded(void)
+{
+	unsigned int previous = 0;
+	for (unsigned int mv = 0; mv <= 6000; ++mv) {
+		unsigned int level = app_battery_level_pptt(mv);
+		assert(level >= previous);
+		assert(level <= 10000);
+		previous = level;
+	}
+}
+
 int main(void)
 {
+	test_report_cycle_wraparound_and_extreme_deltas();
+	test_battery_curve_is_monotonic_and_bounded();
 	test_report_due_when_value_is_invalid();
 	test_report_due_on_threshold_delta();
 	test_report_due_on_refresh_cycle();

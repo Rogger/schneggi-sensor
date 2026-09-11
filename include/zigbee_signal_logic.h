@@ -24,7 +24,6 @@ enum app_zigbee_signal {
 enum app_commissioning_mode {
 	APP_COMMISSIONING_NONE,
 	APP_COMMISSIONING_INITIALIZATION,
-	APP_COMMISSIONING_NETWORK_STEERING,
 };
 
 struct app_zigbee_state {

@@ -34,7 +34,7 @@ WEST_ENV = \
 	ZEPHYR_SDK_INSTALL_DIR="$(TOOLCHAIN_PATH)/opt/zephyr-sdk" \
 	CCACHE_DISABLE=1
 
-.PHONY: help check check-toolchain west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2
+.PHONY: help check check-toolchain prepare-build-cache west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2
 
 help:
 	@echo "Targets: west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2"
@@ -57,8 +57,19 @@ check-toolchain:
 west-update: check-toolchain
 	@cd "$(NCS_WORKSPACE)" && env $(WEST_ENV) $(WEST) update
 
-build: check
+prepare-build-cache:
+	@if [ -f "$(BUILD_DIR_ABS)/CMakeCache.txt" ]; then \
+		cached_source=$$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$(BUILD_DIR_ABS)/CMakeCache.txt"); \
+		expected_source="$(realpath $(NCS_WORKSPACE)/zephyr/share/sysbuild)"; \
+		if [ -n "$$cached_source" ] && [ "$$cached_source" != "$$expected_source" ]; then \
+			echo "Build cache uses $$cached_source; regenerating for $$expected_source"; \
+			$(MAKE) --no-print-directory clean BUILD_DIR="$(BUILD_DIR)"; \
+		fi; \
+	fi
+
+build: check prepare-build-cache
 	@cd "$(NCS_WORKSPACE)" && env $(WEST_ENV) $(WEST) build \
+		--pristine=auto \
 		-s "$(APP_DIR)" -d "$(BUILD_DIR_ABS)" -b "$(BOARD)" -- \
 		-DNCS_TOOLCHAIN_VERSION=NONE \
 		-DWEST_PYTHON="$(TOOLCHAIN_PYTHON)" \
@@ -101,6 +112,11 @@ test:
 	@ctest --test-dir tests/unit/build --output-on-failure
 
 clean:
+	@case "$(realpath $(BUILD_DIR_ABS))" in \
+		"" ) ;; \
+		"$(realpath $(APP_DIR))"/build_*|"$(realpath $(APP_DIR))"/build) ;; \
+		* ) echo "Refusing to clean outside a project build directory: $(BUILD_DIR_ABS)"; exit 1 ;; \
+	esac
 	@if [ -d "$(BUILD_DIR_ABS)" ]; then \
 		rm -rf "$(BUILD_DIR_ABS)"; \
 		echo "Removed $(BUILD_DIR_ABS)"; \
@@ -114,7 +130,8 @@ erase:
 flash:
 	@$(NRFJPROG) -f NRF52 --snr $(SNR) --sectorerase --program "$(HEX)" --verify --reset
 
-erase-and-flash: erase flash
+erase-and-flash: erase
+	@$(MAKE) flash
 
 flash-debug: BUILD_DIR=build_debug
 flash-debug: flash

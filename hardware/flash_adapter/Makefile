@@ -28,7 +28,11 @@ GERBER_FILES := \
 
 all: jlcpcb
 
-jlcpcb: check gerbers bom cpl zip
+jlcpcb: bom cpl zip
+
+# Express ordering as dependencies so parallel make cannot archive stale files.
+gerbers bom cpl: check
+zip: gerbers
 
 check:
 	$(KICAD_CLI) pcb drc --severity-error --schematic-parity --output $(PROJECT)-drc.rpt $(PCB)

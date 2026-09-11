@@ -4,7 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef CONFIG_APP_REJOIN_INTERVAL_MAX_SECONDS
+#define APP_REJOIN_INTERVAL_MAX_S ((uint32_t)CONFIG_APP_REJOIN_INTERVAL_MAX_SECONDS)
+#else
 #define APP_REJOIN_INTERVAL_MAX_S (15U * 60U)
+#endif
 
 struct app_rejoin_state {
 	bool procedure_started;
@@ -35,6 +39,12 @@ void app_rejoin_process(struct app_rejoin_state *state,
 
 void app_rejoin_mark_retry_pending(struct app_rejoin_state *state);
 void app_rejoin_mark_retry_fired(struct app_rejoin_state *state);
+
+/* Consume a retry alarm, checking cancellation and connection state first. */
+bool app_rejoin_begin_retry(struct app_rejoin_state *state,
+			    bool stack_initialised,
+			    bool joined,
+			    struct app_rejoin_outcome *outcome);
 
 void app_rejoin_stop(struct app_rejoin_state *state,
 		     bool cancel_succeeded,

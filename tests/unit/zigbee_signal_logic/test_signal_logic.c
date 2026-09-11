@@ -199,8 +199,41 @@ static void test_parent_link_failure_starts_rejoin(void)
 	assert(actions.request_sleep == false);
 }
 
+static void test_sleep_and_unhandled_signals_clear_previous_actions(void)
+{
+	struct app_zigbee_state state = { .stack_initialised = true };
+	struct app_zigbee_actions actions;
+	app_zigbee_handle_signal(&state, APP_ZIGBEE_SIGNAL_STEERING, true, false, false, &actions);
+	app_zigbee_handle_signal(&state, APP_ZIGBEE_SIGNAL_CAN_SLEEP, true, false, false, &actions);
+	assert(actions.request_sleep);
+	assert_no_connected_side_effects(&actions);
+	assert(!actions.start_rejoin);
+	assert(state.joining_signal_received);
+	app_zigbee_handle_signal(&state, APP_ZIGBEE_SIGNAL_OTHER, true, false, false, &actions);
+	assert(!actions.request_sleep);
+	assert_no_connected_side_effects(&actions);
+	assert(state.joining_signal_received);
+}
+
+static void test_failed_leave_and_unrelated_link_status_preserve_connection(void)
+{
+	struct app_zigbee_state state = { true, true };
+	struct app_zigbee_actions actions;
+	app_zigbee_handle_signal(&state, APP_ZIGBEE_SIGNAL_LEAVE, false, false, false, &actions);
+	assert(state.joining_signal_received);
+	assert(!actions.start_rejoin);
+	app_zigbee_handle_signal(&state, APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION, true, false, false, &actions);
+	assert(state.joining_signal_received);
+	assert(!actions.start_rejoin);
+	state.stack_initialised = false;
+	app_zigbee_handle_signal(&state, APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION, true, false, true, &actions);
+	assert(!actions.start_rejoin);
+}
+
 int main(void)
 {
+	test_sleep_and_unhandled_signals_clear_previous_actions();
+	test_failed_leave_and_unrelated_link_status_preserve_connection();
 	test_device_first_start_does_not_mark_joined();
 	test_device_first_start_failure_does_not_start_commissioning();
 	test_device_reboot_success_marks_joined_and_does_not_restart_commissioning();
