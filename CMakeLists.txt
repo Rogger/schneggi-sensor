@@ -8,10 +8,18 @@ cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
+if(NOT CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
+  message(FATAL_ERROR "OTA version must be major.minor.patch without a build suffix")
+endif()
+if(CMAKE_MATCH_1 GREATER 255 OR CMAKE_MATCH_2 GREATER 255 OR CMAKE_MATCH_3 GREATER 65535)
+  message(FATAL_ERROR "OTA version exceeds the Zigbee version field widths")
+endif()
+
 project("Schneggi Sensor")
 
 target_sources(app PRIVATE
 	src/app_shtc3.c
+	src/app_ota.c
 	src/app_measurement_logic.c
 	src/app_zcl_report.c
 	src/co2_zcl_logic.c

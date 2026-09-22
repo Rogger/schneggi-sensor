@@ -6,6 +6,7 @@ build/
 build_*/
 .venv/
 local.mk
+__pycache__/
 
 # Local Codex state
 .codex

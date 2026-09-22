@@ -74,10 +74,14 @@ regenerate incompatible project build directories automatically. West's
 automatic pristine mode handles other cache incompatibilities.
 
 ### 2) Build
+Firmware builds now include signed MCUboot/Zigbee OTA support. Supply
+`OTA_SIGNING_KEY=/absolute/private/schneggi.pem` to the build commands below.
+For development only, use `OTA_ALLOW_TEST_KEY=ON` to opt into the public SDK key.
+See [OTA setup, signing, ZHA configuration, and recovery](docs/ota.md).
 
 ```bash
 cd <project-dir>
-make build-debug
+make build-debug OTA_ALLOW_TEST_KEY=ON
 ```
 
 Default output:

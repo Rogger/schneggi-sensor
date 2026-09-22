@@ -1,0 +1,9 @@
+/ {
+  chosen { zephyr,code-partition = &boot_partition; };
+};
+&qspi { status = "disabled"; };
+&gd25q16 { status = "disabled"; };
+&uart0 { status = "disabled"; };
+&i2c0 { status = "disabled"; };
+&spi1 { status = "disabled"; };
+&usbd { status = "disabled"; };

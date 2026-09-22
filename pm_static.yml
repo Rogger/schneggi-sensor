@@ -1,0 +1,39 @@
+# Stable across every OTA release. Preserve the existing ZBOSS storage addresses.
+mcuboot:
+  address: 0x0
+  size: 0xc000
+  region: flash_primary
+mcuboot_pad:
+  address: 0xc000
+  size: 0x200
+  region: flash_primary
+app:
+  address: 0xc200
+  size: 0x74e00
+  region: flash_primary
+mcuboot_primary:
+  address: 0xc000
+  size: 0x75000
+  region: flash_primary
+  span: [mcuboot_pad, app]
+mcuboot_primary_app:
+  address: 0xc200
+  size: 0x74e00
+  region: flash_primary
+  span: [app]
+mcuboot_secondary:
+  address: 0x81000
+  size: 0x75000
+  region: flash_primary
+reserved:
+  address: 0xf6000
+  size: 0x1000
+  region: flash_primary
+zboss_nvram:
+  address: 0xf7000
+  size: 0x8000
+  region: flash_primary
+zboss_product_config:
+  address: 0xff000
+  size: 0x1000
+  region: flash_primary
