@@ -13,6 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run host unit tests
         run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
           cmake -S tests/unit -B tests/unit/build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
           cmake --build tests/unit/build
           ctest --test-dir tests/unit/build --output-on-failure
@@ -47,15 +48,29 @@ jobs:
                 conf="prj_${profile}_no_scd4x.conf"
                 overlay="$overlay;boards/no_scd4x.overlay"
               fi
-              west build -d "build_${profile}_${variant}" -b adafruit_feather_nrf52840 . -- \
+              west build --sysbuild -d "build_${profile}_${variant}" -b adafruit_feather_nrf52840 . -- \
                 -DNCS_TOOLCHAIN_VERSION=NONE -DBOARD_ROOT="$PWD" \
+                -DOTA_ALLOW_TEST_KEY=ON \
                 -DCONF_FILE="$conf" -DDTC_OVERLAY_FILE="$overlay"
             done
+          done
+
+      - name: Validate and package ZHA firmware
+        working-directory: sensor
+        run: |
+          python3 scripts/package_ota.py build_debug_co2 build_debug_no_scd4x build_production_co2 build_production_no_scd4x
+          for image in build_*/*/zephyr/zephyr.signed.bin; do
+            python3 ../bootloader/mcuboot/scripts/imgtool.py verify \
+              -k ../bootloader/mcuboot/root-ec-p256.pem "$image"
           done
       
       - name: Store firmware
         uses: actions/upload-artifact@v4
         with:
-          name: built-applications
-          path: sensor/build_*/merged.hex
+          name: development-firmware-public-test-key
+          path: |
+            sensor/build_*/merged.hex
+            sensor/build_*/partitions.yml
+            sensor/build_*/*/zephyr/zephyr.signed.bin
+            sensor/build_ota_package/*
           if-no-files-found: error

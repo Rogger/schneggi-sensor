@@ -1,0 +1,16 @@
+# Require deliberate opt-in to the SDK's publicly known development key.
+if(NOT SB_CONFIG_BOOTLOADER_MCUBOOT OR NOT SB_CONFIG_BOOT_SIGNATURE_TYPE_ECDSA_P256
+   OR NOT SB_CONFIG_MCUBOOT_MODE_SWAP_WITHOUT_SCRATCH)
+  message(FATAL_ERROR "Schneggi OTA requires MCUboot with ECDSA P256 and swap using move")
+endif()
+if(NOT EXISTS "${SB_CONFIG_BOOT_SIGNATURE_KEY_FILE}")
+  message(FATAL_ERROR "OTA signing key does not exist: ${SB_CONFIG_BOOT_SIGNATURE_KEY_FILE}")
+endif()
+file(SHA256 "${SB_CONFIG_BOOT_SIGNATURE_KEY_FILE}" signing_key_hash)
+file(SHA256 "${ZEPHYR_MCUBOOT_MODULE_DIR}/root-ec-p256.pem" test_key_hash)
+if(signing_key_hash STREQUAL test_key_hash)
+  if(NOT OTA_ALLOW_TEST_KEY)
+    message(FATAL_ERROR "Supply OTA_SIGNING_KEY=/absolute/private/key.pem to make, or explicitly use OTA_ALLOW_TEST_KEY=ON for development only")
+  endif()
+  message(WARNING "DEVELOPMENT ONLY: firmware uses the public MCUboot test key")
+endif()

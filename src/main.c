@@ -8,8 +8,10 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/pm/device_runtime.h>
 #include "app_shtc3.h"
+#include "app_ota.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
+#include <zephyr/sys/reboot.h>
 #include <ram_pwrdn.h>
 
 #include <zboss_api.h>
@@ -213,8 +215,11 @@ ZB_DECLARE_DIMMABLE_LIGHT_EP_NO_CO2(
 	dimmable_light_clusters);
 #endif
 
-ZBOSS_DECLARE_DEVICE_CTX_1_EP(
+extern zb_af_endpoint_desc_t zigbee_fota_client_ep;
+BUILD_ASSERT(SCHNEGGI_ENDPOINT != CONFIG_ZIGBEE_FOTA_ENDPOINT);
+ZBOSS_DECLARE_DEVICE_CTX_2_EP(
 	device_ctx,
+	zigbee_fota_client_ep,
 	schneggi_ep);
 
 // ADC
@@ -352,6 +357,8 @@ static void init_clusters_attr(void)
 	dev_ctx.basic_attr.app_version = 0x01;
 	dev_ctx.basic_attr.stack_version = 0x03;
 	dev_ctx.basic_attr.hw_version = 0x01;
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.sw_ver, CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION,
+		ZB_ZCL_STRING_CONST_SIZE(CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION));
 
 	ZB_ZCL_SET_STRING_VAL(
 		dev_ctx.basic_attr.mf_name,
@@ -904,7 +911,7 @@ static void execute_signal_actions(const struct app_zigbee_actions *actions)
 	if (actions->set_long_poll_interval)
 	{
 		/* long poll uses milliseconds; keepalive uses beacon intervals */
-		zb_zdo_pim_set_long_poll_interval(actions->long_poll_interval_ms);
+		app_ota_set_long_poll(actions->long_poll_interval_ms);
 	}
 
 	if (actions->stop_rejoin)
@@ -1074,6 +1081,8 @@ void zboss_signal_handler(zb_uint8_t param)
 		break;
 	}
 
+	/* Process leave/rejoin actions before OTA may reboot to reset its session. */
+	app_ota_signal(param);
 	if (param)
 	{
 		zb_buf_free(param);
@@ -1083,6 +1092,11 @@ void zboss_signal_handler(zb_uint8_t param)
 int main(void)
 {
 	LOG_INF("Schneggi sensor starting...");
+	if (app_ota_init() != 0) {
+		LOG_ERR("OTA/watchdog initialization failed");
+		sys_reboot(SYS_REBOOT_COLD);
+		return -1;
+	}
 
 	/* Only the non-CO2 profiles enable runtime PM. TWIM takes/releases a
 	 * runtime reference for each transfer, including sensor sleep cleanup.
@@ -1135,6 +1149,10 @@ int main(void)
 	// Erase persistent storage
 	zb_set_nvram_erase_at_start(ZB_FALSE);
 
+	app_ota_startup_ready(device_is_ready(shtc3) &&
+		(!APP_HAS_SCD4X || (scd != NULL && device_is_ready(scd))) &&
+		battery_monitor_ready &&
+		device_is_ready(adc_channels[0].dev));
 	zigbee_enable();
 
 	LOG_INF("Schneggi sensor started");

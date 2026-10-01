@@ -13,6 +13,8 @@ BOARD ?= adafruit_feather_nrf52840
 CONF_FILE ?= prj_debug_no_scd4x.conf
 OVERLAY ?= boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
 BUILD_DIR ?= build_default
+OTA_ALLOW_TEST_KEY ?= OFF
+OTA_SIGNING_KEY ?=
 APP_DIR := $(CURDIR)
 PARENT_WORKSPACE := $(abspath $(APP_DIR)/..)
 NCS_WORKSPACE ?= $(if $(wildcard $(PARENT_WORKSPACE)/.west),$(PARENT_WORKSPACE),$(shell find $$HOME/ncs -mindepth 1 -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort | tail -n1))
@@ -39,6 +41,7 @@ WEST_ENV = \
 help:
 	@echo "Targets: west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2"
 	@echo "Overrides: TOOLCHAIN_PATH TOOLCHAIN_PYTHON XDG_CACHE_HOME NCS_WORKSPACE BOARD CONF_FILE OVERLAY BUILD_DIR SNR"
+	@echo "OTA: ota-package verify-ota; signing: OTA_SIGNING_KEY=/absolute/private/key.pem (or OTA_ALLOW_TEST_KEY=ON for development)"
 
 check:
 	@test -x "$(TOOLCHAIN_PYTHON)" || (echo "Missing TOOLCHAIN_PYTHON: $(TOOLCHAIN_PYTHON)"; exit 1)
@@ -70,8 +73,12 @@ prepare-build-cache:
 build: check prepare-build-cache
 	@cd "$(NCS_WORKSPACE)" && env $(WEST_ENV) $(WEST) build \
 		--pristine=auto \
+		--sysbuild \
 		-s "$(APP_DIR)" -d "$(BUILD_DIR_ABS)" -b "$(BOARD)" -- \
 		-DNCS_TOOLCHAIN_VERSION=NONE \
+		-DBOARD_ROOT="$(APP_DIR)" \
+		-DOTA_ALLOW_TEST_KEY="$(OTA_ALLOW_TEST_KEY)" \
+		-DSB_CONFIG_BOOT_SIGNATURE_KEY_FILE='"$(if $(OTA_SIGNING_KEY),$(OTA_SIGNING_KEY),$(NCS_WORKSPACE)/bootloader/mcuboot/root-ec-p256.pem)"' \
 		-DWEST_PYTHON="$(TOOLCHAIN_PYTHON)" \
 		-DCONF_FILE="$(CONF_FILE)" \
 		-DDTC_OVERLAY_FILE="$(OVERLAY)"
@@ -107,9 +114,19 @@ build-production-co2: OVERLAY=boards/adafruit_feather_nrf52840.overlay
 build-production-co2: build
 
 test:
+	@python3 -m unittest discover -s tests -p 'test_*.py'
 	@cmake -S tests/unit -B tests/unit/build
 	@cmake --build tests/unit/build
 	@ctest --test-dir tests/unit/build --output-on-failure
+
+.PHONY: ota-package verify-ota
+ota-package:
+	@python3 scripts/package_ota.py "$(BUILD_DIR_ABS)"
+
+verify-ota: check-toolchain
+	@env $(WEST_ENV) "$(TOOLCHAIN_PYTHON)" "$(NCS_WORKSPACE)/bootloader/mcuboot/scripts/imgtool.py" verify \
+		-k "$(if $(OTA_SIGNING_KEY),$(OTA_SIGNING_KEY),$(NCS_WORKSPACE)/bootloader/mcuboot/root-ec-p256.pem)" \
+		"$(BUILD_DIR_ABS)/$(notdir $(APP_DIR))/zephyr/zephyr.signed.bin"
 
 clean:
 	@case "$(realpath $(BUILD_DIR_ABS))" in \
