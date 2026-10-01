@@ -32,24 +32,34 @@ def version_number(version):
 
 
 def parse_ota(data):
-    if len(data) < 66:
+    if len(data) < 62:
         raise ValueError("Truncated OTA image")
     magic, header_version, header_size, fields, manufacturer, image_type, version = struct.unpack_from('<I5HI', data)
     size = struct.unpack_from('<I', data, 52)[0]
-    if (magic, header_version, header_size, fields) != (0x0BEEF11E, 0x0100, 60, 4):
-        raise ValueError("Unexpected OTA header or missing hardware restrictions")
+    if (magic, header_version) != (0x0BEEF11E, 0x0100) or (header_size, fields) not in ((56, 0), (60, 4)):
+        raise ValueError("Unexpected OTA header")
+    if len(data) < header_size + 6:
+        raise ValueError("Truncated OTA image")
     if size != len(data):
         raise ValueError("OTA size mismatch")
-    minimum, maximum = struct.unpack_from('<HH', data, 56)
+    # New images omit the optional hardware range: NCS 2.9.2's periodic
+    # Query Next Image omits hardware_version, which zigpy requires when a
+    # range is present. Still accept older restricted Schneggi artifacts.
+    hardware = {}
+    if fields & 4:
+        minimum, maximum = struct.unpack_from('<HH', data, 56)
+        if (minimum, maximum) != (1, 1):
+            raise ValueError("Image is not a supported Schneggi hardware/profile image")
+        hardware = {"min_hardware_version": minimum, "max_hardware_version": maximum}
     tag, payload_size = struct.unpack_from('<HI', data, header_size)
     if tag != 0 or payload_size != len(data) - header_size - 6:
         raise ValueError("Invalid OTA image subelement")
-    if manufacturer != 0xFFF1 or image_type not in PROFILES or (minimum, maximum) != (1, 1):
+    if manufacturer != 0xFFF1 or image_type not in PROFILES:
         raise ValueError("Image is not a supported Schneggi hardware/profile image")
     return {
         "manufacturer_id": manufacturer, "image_type": image_type,
         "file_version": version, "file_size": size,
-        "min_hardware_version": minimum, "max_hardware_version": maximum,
+        **hardware,
         "checksum": "sha3-256:" + hashlib.sha3_256(data).hexdigest(),
         "manufacturer_names": ["FuZZi"], "model_names": ["Schneggi Sensor"],
     }, data[header_size + 6:]
@@ -61,6 +71,10 @@ def validate_build(build):
     if len(apps) != 1:
         raise ValueError(f"Expected exactly one OTA application in {build}")
     config = read_config(apps[0])
+    # These image types belong to hardware version 1. A future incompatible
+    # board must use a new image type rather than rely on optional query data.
+    if int(config['CONFIG_ZIGBEE_FOTA_HW_VERSION'], 0) != 1:
+        raise ValueError("Schneggi image types are reserved for hardware version 1")
     version = version_number(config['CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION'].strip('"'))
     image_type = int(config['CONFIG_ZIGBEE_FOTA_IMAGE_TYPE'], 0)
     candidates = []

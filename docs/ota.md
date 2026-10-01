@@ -84,6 +84,16 @@ release should use an assigned manufacturer ID. The index also matches the
 `FuZZi` manufacturer name and `Schneggi Sensor` model. Changing these identifiers
 or moving between profiles requires a deliberate migration, normally wired.
 
+Starting with 1.0.2, OTA files and indexes omit the optional minimum/maximum
+hardware-version range. NCS 2.9.2's periodic Query Next Image request omits its
+hardware version, and zigpy rejects a restricted image when that field is absent.
+Removing only the range from the index is insufficient: zigpy also checks the
+downloaded OTA header. Compatibility is enforced by manufacturer and image type;
+the four image types above are reserved for these hardware-version-1 profiles.
+Assign new image types for future incompatible hardware. The client's hardware
+version remains 1 for queries triggered by Image Notify. The packager continues
+to accept older files with a hardware range of 1–1 for manual notification tests.
+
 ## Configure ZHA
 
 Copy the contents of `build_ota_package/` into `/config/zigbee_ota/` on the Home
@@ -111,6 +121,14 @@ the newer image. Select **Install** on the update entity. Sleepy-device polling
 can delay the start; a missed notification may require retrying after the device
 wakes. Existing production long polling is two minutes.
 
+To test automatic discovery from 1.0.1, publish the 1.0.2 package and restart
+Home Assistant to load its index. Keep the sensor powered and wait for its next
+hourly query; do not send the manual Image Notify command. Confirm that ZHA shows
+`0x01000002`, then install it. The firmware entity may remain `unknown` until a
+query is received. A successfully loaded provider alone does not establish that
+the image matches the sensor. Enable ZHA debug logging to inspect the query and
+image selection if discovery does not occur.
+
 Transfers use a temporary 100 ms polling interval. The normal interval is restored
 on error or completion, including when rejoin logic requests a polling change.
 During download, five minutes without an accepted image block causes an abort and
@@ -133,6 +151,16 @@ An HTTPS index via `zigpy_remote` can be added later; this implementation stages
 local artifacts and does not publish releases or change Home Assistant remotely.
 
 ## Recovery, flash limits, and hardware acceptance
+
+Bench test on 2026-09-28: the USB-powered debug CO2 sensor successfully updated
+from 1.0.0 to 1.0.1 through ZHA after a manual Image Notify. The installed version
+changed to `0x01000001`, CO2/temperature/humidity reporting resumed, and reporting
+and pairing survived a subsequent power cycle. The first installation attempt
+failed; the retry completed. On 2026-10-01, ZHA discovered the 1.0.2 image after
+its local provider was updated, without a manual Image Notify. Installation again
+started on the second attempt, and Home Assistant reported `0x01000002` with
+changing sensor readings. This confirms automatic discovery and the basic update
+path for that device. The remaining recovery tests below require separate validation.
 
 The 1 MiB internal flash contains a 48 KiB bootloader, two 468 KiB slots, a
 reserved page, and the existing 36 KiB Zigbee storage. The image-size check allows
