@@ -12,6 +12,7 @@ LOG_MODULE_REGISTER(app_ota, LOG_LEVEL_INF);
 static bool downloading;
 static bool waiting_for_install;
 static bool peripherals_ok;
+static bool sleepy_device = true;
 static uint32_t normal_poll_ms = CONFIG_ZIGBEE_LONG_POLL_INTERVAL_MS;
 static const struct device *const watchdog = DEVICE_DT_GET(DT_ALIAS(watchdog0));
 static int watchdog_channel;
@@ -40,7 +41,9 @@ static void end_download(void)
   waiting_for_install = false;
   ZB_SCHEDULE_APP_ALARM_CANCEL(download_timeout, ZB_ALARM_ANY_PARAM);
   ZB_SCHEDULE_APP_ALARM_CANCEL(response_timeout, ZB_ALARM_ANY_PARAM);
-  zb_zdo_pim_set_long_poll_interval(normal_poll_ms);
+  if (sleepy_device) {
+    zb_zdo_pim_set_long_poll_interval(normal_poll_ms);
+  }
 }
 
 static void response_timeout(zb_uint8_t unused)
@@ -75,19 +78,28 @@ static void download_activity(void)
 {
   downloading = true;
   waiting_for_install = false;
-  zb_zdo_pim_set_long_poll_interval(100);
+  if (sleepy_device) {
+    zb_zdo_pim_set_long_poll_interval(100);
+  }
   ZB_SCHEDULE_APP_ALARM_CANCEL(download_timeout, ZB_ALARM_ANY_PARAM);
   if (ZB_SCHEDULE_APP_ALARM(download_timeout, 0,
                            ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000)) != RET_OK) {
-    /* Never leave fast polling enabled without a bounded exit path. */
+    /* A transfer must have a bounded exit path on both power profiles. */
     download_timeout(0);
   }
+}
+
+void app_ota_set_sleepy(bool sleepy)
+{
+  sleepy_device = sleepy;
 }
 
 void app_ota_set_long_poll(uint32_t interval_ms)
 {
   normal_poll_ms = interval_ms;
-  zb_zdo_pim_set_long_poll_interval(downloading ? 100 : interval_ms);
+  if (sleepy_device) {
+    zb_zdo_pim_set_long_poll_interval(downloading ? 100 : interval_ms);
+  }
 }
 
 static void ota_event(const struct zigbee_fota_evt *evt)
@@ -140,9 +152,11 @@ static void zcl_callback(zb_bufid_t bufid)
     end_download();
     waiting_for_install = true;
     if (status == ZB_ZCL_OTA_UPGRADE_STATUS_CHECK) {
-      /* Receive the upcoming Upgrade End response promptly without leaving
-       * a sleepy device polling rapidly throughout a deferred installation. */
-      zb_zdo_pim_start_turbo_poll_continuous(30000);
+      /* A sleepy device polls briefly for Upgrade End; USB receivers stay on.
+       * The response deadline applies to both profiles. */
+      if (sleepy_device) {
+        zb_zdo_pim_start_turbo_poll_continuous(30000);
+      }
       if (ZB_SCHEDULE_APP_ALARM(response_timeout, 0,
                                ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000)) != RET_OK) {
         response_timeout(0);
