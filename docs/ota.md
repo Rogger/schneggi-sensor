@@ -120,10 +120,10 @@ The device discovers the OTA server on joining/rebooting, retries discovery ever
 the newer image. Select **Install** on the update entity. Sleepy-device polling
 on the non-CO2 variant can delay the start; a missed notification may require
 retrying after the device wakes. Its production long polling interval is two
-minutes. CO2 firmware from 1.0.3 keeps the receiver on while idle, so it should
+minutes. CO2 firmware from 2.0.0 keeps the receiver on while idle, so it should
 accept the notification promptly.
 
-The 1.0.3 CO2 image also changes endpoint 1's power source to DC, removes its
+The 2.0.0 CO2 image also changes endpoint 1's power source to DC, removes its
 Power Configuration cluster, and increments the endpoint descriptor version.
 After updating an existing device, reconfigure or re-interview it in ZHA so the
 cached battery entity can be removed. If ZHA keeps the old cluster list, remove
