@@ -197,23 +197,27 @@ static void test_battery_percentage_mapping(void)
 	assert(last_call.value[0] == value);
 }
 
-static void test_remote_reporting_detection(void)
+static void test_custom_reporting_detection_and_reset(void)
 {
 	const zb_uint8_t endpoint = 1U;
 
+	memset(&reporting_info, 0, sizeof(reporting_info));
+	reporting_info.u.send_info.def_min_interval = 5U;
+	reporting_info.u.send_info.min_interval = 5U;
 	reporting_info_present = false;
-	assert(!app_zcl_remote_reporting_configured(endpoint,
+	assert(!app_zcl_custom_s16_reporting_active(endpoint,
 		ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
 		ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID));
 
 	reporting_info_present = true;
 	reporting_info.dst.endpoint = 0U;
-	assert(!app_zcl_remote_reporting_configured(endpoint,
+	reporting_info.u.send_info.delta.s16 = 1;
+	assert(!app_zcl_custom_s16_reporting_active(endpoint,
 		ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
 		ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID));
 
 	reporting_info.dst.endpoint = 2U;
-	assert(app_zcl_remote_reporting_configured(endpoint,
+	assert(app_zcl_custom_s16_reporting_active(endpoint,
 		ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
 		ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID));
 	assert(reporting_lookup.endpoint == endpoint);
@@ -221,6 +225,29 @@ static void test_remote_reporting_detection(void)
 	assert(reporting_lookup.cluster_role == ZB_ZCL_CLUSTER_SERVER_ROLE);
 	assert(reporting_lookup.attr_id == ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID);
 	assert(reporting_lookup.manuf_code == ZB_ZCL_NON_MANUFACTURER_SPECIFIC);
+
+	reporting_info.u.send_info.delta.s16 = 0;
+	reporting_info.u.send_info.min_interval = 30U;
+	assert(app_zcl_custom_s16_reporting_active(endpoint,
+		ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+		ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID));
+
+	reporting_info.u.send_info.min_interval = 5U;
+	reporting_info.u.send_info.max_interval = 3600U;
+	assert(app_zcl_custom_s16_reporting_active(endpoint,
+		ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+		ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID));
+	reporting_info.direction = ZB_ZCL_CONFIGURE_REPORTING_RECV_REPORT;
+	assert(!app_zcl_custom_s16_reporting_active(endpoint,
+		ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+		ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID));
+	reporting_info.direction = ZB_ZCL_CONFIGURE_REPORTING_SEND_REPORT;
+
+	/* ZBOSS retains dst.endpoint after a peer restores default reporting. */
+	reporting_info.u.send_info.max_interval = 0U;
+	assert(!app_zcl_custom_s16_reporting_active(endpoint,
+		ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+		ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID));
 }
 
 int main(void)
@@ -231,7 +258,7 @@ int main(void)
 	test_co2_mapping();
 	test_battery_voltage_mapping();
 	test_battery_percentage_mapping();
-	test_remote_reporting_detection();
+	test_custom_reporting_detection_and_reset();
 
 	printf("zcl_report unit tests passed\n");
 	return 0;

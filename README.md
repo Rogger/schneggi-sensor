@@ -44,9 +44,12 @@ ZHA can configure the standard minimum interval, maximum interval, and
 reportable change for endpoint 1's Temperature Measurement (`0x0402`) and
 Relative Humidity Measurement (`0x0405`) measured-value (`0x0000`) attributes.
 Their changes are in hundredths of a degree Celsius and hundredths of a percent
-relative humidity. Once a coordinator configures reporting, ZBOSS applies those
-settings to every new sensor reading. Until then, the firmware retains its
-0.1 °C / 1% change thresholds and 24-hour refresh.
+relative humidity. For settings that differ from ZBOSS's defaults, ZBOSS applies
+them to every new sensor reading. Without a configuration, or after reporting
+is restored to defaults, the firmware retains its 0.1 °C / 1% change thresholds
+and 24-hour refresh. A request for ZBOSS's exact default settings (5-second
+minimum, no periodic maximum, zero change) is indistinguishable from a reset
+and also uses the firmware fallback.
 
 The CO2 Concentration Measurement (`0x040D`) measured value is refreshed on
 every sample, so its Zigbee minimum and maximum reporting intervals can be

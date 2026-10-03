@@ -4,11 +4,25 @@
 #include <zboss_api.h>
 
 #define ZB_ZCL_NON_MANUFACTURER_SPECIFIC ((zb_uint16_t)0xFFFFU)
+#define ZB_ZCL_CONFIGURE_REPORTING_SEND_REPORT 0U
+#define ZB_ZCL_CONFIGURE_REPORTING_RECV_REPORT 1U
 
 typedef struct {
+	zb_uint8_t direction;
 	struct {
 		zb_uint8_t endpoint;
 	} dst;
+	union {
+		struct {
+			zb_uint16_t min_interval;
+			zb_uint16_t max_interval;
+			union {
+				zb_int16_t s16;
+			} delta;
+			zb_uint16_t def_min_interval;
+			zb_uint16_t def_max_interval;
+		} send_info;
+	} u;
 } zb_zcl_reporting_info_t;
 
 zb_zcl_reporting_info_t *zb_zcl_find_reporting_info_manuf(
