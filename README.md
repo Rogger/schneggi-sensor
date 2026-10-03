@@ -114,7 +114,7 @@ make flash-production-co2
 For the CO2 production firmware:
 
 ```bash
-make build-production-co2
+make build-production-co2 OTA_SIGNING_KEY=/absolute/private/schneggi.pem
 make flash-production-co2
 ```
 
@@ -125,7 +125,8 @@ make test
 ```
 
 The host tests cover reporting thresholds and counter wraparound, battery conversion,
-CO2 attribute validation, Zigbee signal handling, and rejoin retry/cancellation behavior.
+CO2 attribute validation, Zigbee signal handling, OTA behavior for both power profiles,
+and rejoin retry/cancellation behavior.
 CI runs them in Debug and Release and builds all four firmware profiles. ADC/GPIO
 behavior, network recovery over the radio, and sleep current still require hardware tests.
 
