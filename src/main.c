@@ -33,19 +33,23 @@
 #include "rejoin_logic.h"
 #include "zigbee_signal_logic.h"
 
+#define APP_HAS_SCD4X DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
+
 // Sleep
 static const uint32_t SLEEP_INTERVAL_SECONDS = (uint32_t)CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60U;				   // HA minimum = 30s
+#if !APP_HAS_SCD4X
 static const uint32_t BATTERY_REPORT_INTERVAL_SECONDS = (uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U; // HA minimum = 3600s
-static const uint32_t SENSOR_REFRESH_INTERVAL_SECONDS = 24U * 60U * 60U;
 static const uint32_t BATTERY_SLEEP_CYCLES =
 	(BATTERY_REPORT_INTERVAL_SECONDS + SLEEP_INTERVAL_SECONDS - 1U) / SLEEP_INTERVAL_SECONDS;
+#define BATTERY_VOLTAGE_REPORT_THRESHOLD_MV 100
+#define BATTERY_PERCENT_REPORT_THRESHOLD 1
+#endif
+static const uint32_t SENSOR_REFRESH_INTERVAL_SECONDS = 24U * 60U * 60U;
 static const uint32_t SENSOR_REFRESH_CYCLES =
 	(SENSOR_REFRESH_INTERVAL_SECONDS + SLEEP_INTERVAL_SECONDS - 1U) / SLEEP_INTERVAL_SECONDS;
 
 #define TEMP_REPORT_THRESHOLD_CENTI_C 10
 #define HUMIDITY_REPORT_THRESHOLD_CENTI_PERCENT 100
-#define BATTERY_VOLTAGE_REPORT_THRESHOLD_MV 100
-#define BATTERY_PERCENT_REPORT_THRESHOLD 1
 
 #if defined(CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS)
 #define APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS ((uint32_t)CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS)
@@ -62,14 +66,14 @@ static const uint32_t SENSOR_REFRESH_CYCLES =
 #endif
 
 BUILD_ASSERT(CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES > 0, "CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES must be greater than zero");
+#if !APP_HAS_SCD4X
 BUILD_ASSERT(CONFIG_BATTERY_UPDATE_INTERVAL_HOURS > 0, "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must be greater than zero");
 BUILD_ASSERT((uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U >=
 					 (uint32_t)CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60U,
-				 "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must not be shorter than CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES");
+			 "CONFIG_BATTERY_UPDATE_INTERVAL_HOURS must not be shorter than CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES");
+#endif
 BUILD_ASSERT(APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS >= APP_ZIGBEE_LONG_POLL_INTERVAL_MS,
 			 "CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS must be >= CONFIG_ZIGBEE_LONG_POLL_INTERVAL_MS");
-
-#define APP_HAS_SCD4X DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
 
 // ZigBee
 #define SCHNEGGI_ENDPOINT 0x01
@@ -92,6 +96,7 @@ typedef struct
 	zb_uint32_t tolerance;
 } zb_zcl_concentration_measurement_attrs_t;
 
+#if !APP_HAS_SCD4X
 typedef struct
 {
 	zb_uint8_t battery_voltage;
@@ -111,6 +116,7 @@ typedef struct
 	zb_uint32_t battery_alarm_state;
 
 } zb_zcl_power_config_attr_t;
+#endif
 
 typedef struct
 {
@@ -119,7 +125,9 @@ typedef struct
 	zb_zcl_temp_measurement_attrs_t temp_measure_attrs;
 	zb_zcl_rel_humidity_measurement_attr_t humidity_measure_attrs;
 	zb_zcl_concentration_measurement_attrs_t concentration_measure_attrs;
+#if !APP_HAS_SCD4X
 	zb_zcl_power_config_attr_t power_config_attr;
+#endif
 } schneggi_device_ctx_t;
 
 static schneggi_device_ctx_t dev_ctx;
@@ -163,6 +171,7 @@ ZB_ZCL_DECLARE_CONCENTRATION_MEASUREMENT_ATTRIB_LIST(concentration_measurement_a
 													 &dev_ctx.concentration_measure_attrs.tolerance);
 #endif
 
+#if !APP_HAS_SCD4X
 /* Define 'bat_num' as empty in order to declare default battery set attributes. */
 /* According to Table 3-17 of ZCL specification, defining 'bat_num' as 2 or 3 allows */
 /* to declare battery set attributes for BATTERY2 and BATTERY3 */
@@ -185,6 +194,7 @@ ZB_ZCL_DECLARE_POWER_CONFIG_BATTERY_ATTRIB_LIST_EXT(
 	&dev_ctx.power_config_attr.battery_percentage_threshold2,
 	&dev_ctx.power_config_attr.battery_percentage_threshold3,
 	&dev_ctx.power_config_attr.battery_alarm_state);
+#endif
 
 #if APP_HAS_SCD4X
 ZB_DECLARE_DIMMABLE_LIGHT_CLUSTER_LIST(
@@ -193,8 +203,7 @@ ZB_DECLARE_DIMMABLE_LIGHT_CLUSTER_LIST(
 	identify_attr_list,
 	temp_measurement_attr_list,
 	humidity_measurement_attr_list,
-	concentration_measurement_attr_list,
-	power_config_attr_list);
+	concentration_measurement_attr_list);
 
 ZB_DECLARE_DIMMABLE_LIGHT_EP_WITH_CO2(
 	schneggi_ep,
@@ -223,6 +232,7 @@ ZBOSS_DECLARE_DEVICE_CTX_2_EP(
 	schneggi_ep);
 
 // ADC
+#if !APP_HAS_SCD4X
 #if !DT_NODE_EXISTS(DT_PATH(zephyr_user)) || \
 	!DT_NODE_HAS_PROP(DT_PATH(zephyr_user), io_channels)
 #error "No suitable devicetree overlay specified"
@@ -233,6 +243,7 @@ ZBOSS_DECLARE_DEVICE_CTX_2_EP(
 
 static const struct adc_dt_spec adc_channels[] = {
 	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels, DT_SPEC_AND_COMMA)};
+#endif
 
 static const struct device *shtc3;
 static const struct i2c_dt_spec shtc3_bus =
@@ -240,14 +251,16 @@ static const struct i2c_dt_spec shtc3_bus =
 
 #define LED_NODE DT_ALIAS(led)
 static const struct gpio_dt_spec led_spec = GPIO_DT_SPEC_GET(LED_NODE, gpios);
+static const struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
 
+#if !APP_HAS_SCD4X
 static uint16_t buf;
 static struct adc_sequence sequence = {
 	.buffer = &buf,
 	.buffer_size = sizeof(buf)};
 
-static const struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
 static bool battery_monitor_ready;
+#endif
 
 #if APP_HAS_SCD4X
 static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd4x);
@@ -265,12 +278,14 @@ struct report_state
 	bool humidity_valid;
 	int16_t humidity_value;
 	uint32_t humidity_cycle;
+#if !APP_HAS_SCD4X
 	bool battery_voltage_valid;
 	int32_t battery_voltage_mv;
 	uint32_t battery_voltage_cycle;
 	bool battery_percentage_valid;
 	uint8_t battery_percentage;
 	uint32_t battery_percentage_cycle;
+#endif
 };
 
 static struct report_state report_state;
@@ -313,7 +328,7 @@ static void init_scd4x_device(void)
 	}
 }
 
-static void init_adc(void)
+static void init_battery_monitor(void)
 {
 	int err;
 	if (!gpio_is_ready_dt(&battery_monitor_enable))
@@ -327,6 +342,7 @@ static void init_adc(void)
 		LOG_ERR("Could not configure battery monitor GPIO (%d)", err);
 		return;
 	}
+#if !APP_HAS_SCD4X
 	/* Configure channels individually prior to sampling. */
 	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++)
 	{
@@ -345,6 +361,7 @@ static void init_adc(void)
 	}
 
 	battery_monitor_ready = true;
+#endif
 }
 
 /**@brief Function for initializing all clusters attributes.
@@ -353,7 +370,8 @@ static void init_clusters_attr(void)
 {
 	/* Basic cluster attributes data */
 	dev_ctx.basic_attr.zcl_version = ZB_ZCL_VERSION;
-	dev_ctx.basic_attr.power_source = ZB_ZCL_BASIC_POWER_SOURCE_BATTERY;
+	dev_ctx.basic_attr.power_source = APP_HAS_SCD4X ?
+		ZB_ZCL_BASIC_POWER_SOURCE_DC_SOURCE : ZB_ZCL_BASIC_POWER_SOURCE_BATTERY;
 	dev_ctx.basic_attr.app_version = 0x01;
 	dev_ctx.basic_attr.stack_version = 0x03;
 	dev_ctx.basic_attr.hw_version = 0x01;
@@ -377,11 +395,13 @@ static void init_clusters_attr(void)
 	dev_ctx.identify_attr.identify_time =
 		ZB_ZCL_IDENTIFY_IDENTIFY_TIME_DEFAULT_VALUE;
 
-	/* Power */
+#if !APP_HAS_SCD4X
+	/* Battery power configuration */
 	dev_ctx.power_config_attr.battery_voltage = ZB_ZCL_POWER_CONFIG_BATTERY_VOLTAGE_INVALID;
 	dev_ctx.power_config_attr.battery_percentage_remaining = ZB_ZCL_POWER_CONFIG_BATTERY_REMAINING_UNKNOWN;
 	dev_ctx.power_config_attr.battery_size = ZB_ZCL_POWER_CONFIG_BATTERY_SIZE_DEFAULT_VALUE;
 	dev_ctx.power_config_attr.battery_quantity = 1;
+#endif
 
 	/* Temperature */
 	dev_ctx.temp_measure_attrs.measure_value = ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_UNKNOWN;
@@ -609,6 +629,7 @@ static void update_sensor_values(uint32_t current_cycle)
 #endif
 }
 
+#if !APP_HAS_SCD4X
 static bool update_battery_voltage_report(int32_t battery_voltage_mv, uint32_t current_cycle)
 {
 	uint8_t battery_attribute = app_battery_voltage_zcl_attribute(battery_voltage_mv);
@@ -772,8 +793,11 @@ cleanup:
 		LOG_ERR("Could not disable battery monitor (%d)", err);
 	}
 }
+#endif
 
+#if !APP_HAS_SCD4X
 static uint32_t battery_cycles = 0;
+#endif
 static uint32_t measurement_cycles = 0;
 static struct app_rejoin_state rejoin_state = {0};
 
@@ -782,7 +806,11 @@ static void sensor_loop(zb_bufid_t bufid)
 	ZVUNUSED(bufid);
 	uint32_t current_cycle = measurement_cycles++;
 
+#if APP_HAS_SCD4X
+	LOG_DBG("-- Loop %" PRIu32 " (%s)--", current_cycle, ZB_JOINED() ? "Connected" : "Disconnected");
+#else
 	LOG_DBG("-- Loop %" PRIu32 " / %" PRIu32 " (%s)--", battery_cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
+#endif
 
 	ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
 	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
@@ -795,7 +823,8 @@ static void sensor_loop(zb_bufid_t bufid)
 
 	update_sensor_values(current_cycle);
 
-	/* Update battery on startup (cycles==0) or oncce BATTERY_SLEEP_CYCLES is reached*/
+#if !APP_HAS_SCD4X
+	/* Update battery on startup and every BATTERY_SLEEP_CYCLES thereafter. */
 	if (battery_cycles == 0 || battery_cycles == BATTERY_SLEEP_CYCLES)
 	{
 		update_battery(current_cycle);
@@ -805,8 +834,13 @@ static void sensor_loop(zb_bufid_t bufid)
 	{
 		battery_cycles++;
 	}
+#endif
 
+#if APP_HAS_SCD4X
+	LOG_DBG("Next measurement in %" PRIu32 " seconds", SLEEP_INTERVAL_SECONDS);
+#else
 	LOG_DBG("Sleep for %" PRIu32 " seconds", SLEEP_INTERVAL_SECONDS);
+#endif
 }
 
 static struct app_zigbee_state app_state;
@@ -924,7 +958,7 @@ static void execute_signal_actions(const struct app_zigbee_actions *actions)
 		start_network_rejoin();
 	}
 
-	if (actions->request_sleep)
+	if (actions->request_sleep && !APP_HAS_SCD4X)
 	{
 		zb_sleep_now();
 	}
@@ -1112,7 +1146,8 @@ int main(void)
 
 	init_scd4x_device();
 
-	init_adc();
+	/* Keep the divider disabled even when the USB profile never samples it. */
+	init_battery_monitor();
 
 	gpio_pin_configure_dt(&led_spec, GPIO_OUTPUT_INACTIVE);
 
@@ -1127,18 +1162,23 @@ int main(void)
 	LOG_DBG("802.15.4 transmit power: %d dBm", nrf_802154_tx_power_get());
 	LOG_DBG("ZB sleep threshold: %d ms", zb_get_sleep_threshold());
 
-	// RX on when Idle and power_source are required for the ZigBee capability AC mains = False
-	// Turn off radio when sleeping https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/protocols/zigbee/configuring.html#sleepy-end-device-behavior
-	zb_set_rx_on_when_idle(ZB_FALSE);
-	LOG_INF("Enabled sleepy end device behavior.");
+	/* The USB-powered CO2 device listens continuously; the battery variant sleeps. */
+	app_ota_set_sleepy(!APP_HAS_SCD4X);
+	zb_set_rx_on_when_idle(APP_HAS_SCD4X ? ZB_TRUE : ZB_FALSE);
+	LOG_INF("Zigbee receiver on while idle: %s", APP_HAS_SCD4X ? "yes" : "no");
 
 	// https://developer.nordicsemi.com/nRF_Connect_SDK/doc/zboss/3.11.2.1/zigbee_prog_principles.html#zigbee_power_optimization_sleepy
 	zb_set_ed_timeout(APP_ZIGBEE_ED_TIMEOUT_VALUE);
 	zb_set_keepalive_timeout(ZB_MILLISECONDS_TO_BEACON_INTERVAL(APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS));
+#if APP_HAS_SCD4X
+	LOG_INF("Zigbee power profile: receiver on, keepalive=%u ms ed_timeout=%s",
+		 APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS, APP_ZIGBEE_ED_TIMEOUT_DESC);
+#else
 	LOG_INF("Zigbee power profile: long poll=%u ms keepalive=%u ms ed_timeout=%s",
 		 APP_ZIGBEE_LONG_POLL_INTERVAL_MS,
 		 APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS,
 		 APP_ZIGBEE_ED_TIMEOUT_DESC);
+#endif
 
 	ZB_AF_REGISTER_DEVICE_CTX(&device_ctx);
 
@@ -1150,9 +1190,11 @@ int main(void)
 	zb_set_nvram_erase_at_start(ZB_FALSE);
 
 	app_ota_startup_ready(device_is_ready(shtc3) &&
-		(!APP_HAS_SCD4X || (scd != NULL && device_is_ready(scd))) &&
-		battery_monitor_ready &&
-		device_is_ready(adc_channels[0].dev));
+		(!APP_HAS_SCD4X || (scd != NULL && device_is_ready(scd)))
+#if !APP_HAS_SCD4X
+		&& battery_monitor_ready && device_is_ready(adc_channels[0].dev)
+#endif
+	);
 	zigbee_enable();
 
 	LOG_INF("Schneggi sensor started");

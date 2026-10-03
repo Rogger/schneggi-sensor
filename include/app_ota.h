@@ -7,6 +7,7 @@
 
 int app_ota_init(void);
 void app_ota_signal(zb_bufid_t bufid);
+void app_ota_set_sleepy(bool sleepy);
 void app_ota_set_long_poll(uint32_t interval_ms);
 void app_ota_startup_ready(bool peripherals_ready);
 

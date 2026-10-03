@@ -118,8 +118,16 @@ again may be necessary. Confirm that the device has a firmware update entity.
 The device discovers the OTA server on joining/rebooting, retries discovery every
 24 hours if necessary, and queries a discovered server hourly. ZHA can then show
 the newer image. Select **Install** on the update entity. Sleepy-device polling
-can delay the start; a missed notification may require retrying after the device
-wakes. Existing production long polling is two minutes.
+on the non-CO2 variant can delay the start; a missed notification may require
+retrying after the device wakes. Its production long polling interval is two
+minutes. CO2 firmware from 2.0.0 keeps the receiver on while idle, so it should
+accept the notification promptly.
+
+The 2.0.0 CO2 image also changes endpoint 1's power source to DC, removes its
+Power Configuration cluster, and increments the endpoint descriptor version.
+After updating an existing device, reconfigure or re-interview it in ZHA so the
+cached battery entity can be removed. If ZHA keeps the old cluster list, remove
+and pair the device again.
 
 To test automatic discovery from 1.0.1, publish the 1.0.2 package and restart
 Home Assistant to load its index. Keep the sensor powered and wait for its next
@@ -129,16 +137,18 @@ query is received. A successfully loaded provider alone does not establish that
 the image matches the sensor. Enable ZHA debug logging to inspect the query and
 image selection if discovery does not occur.
 
-Transfers use a temporary 100 ms polling interval. The normal interval is restored
-on error or completion, including when rejoin logic requests a polling change.
+The battery variant uses a temporary 100 ms polling interval during transfers,
+then restores its normal interval on error or completion. The USB-powered CO2
+variant leaves its receiver on and does not use the sleepy-device polling controls.
 During download, five minutes without an accepted image block causes an abort and
 reboot to clear the session. Successful image validation cancels that deadline;
 ZBOSS then honors the server's installation time, including indefinite deferral.
 A separate five-minute deadline resets the session by rebooting if the server's
 Upgrade End response is missing. It checks the ZBOSS state, so an acknowledged
 indefinite deferral or scheduled installation does not trigger recovery.
-The client uses a bounded 30-second turbo-poll window to receive the Upgrade End
-response, then returns to normal polling while waiting. Interrupted downloads
+The battery client uses a bounded 30-second turbo-poll window to receive the
+Upgrade End response, then returns to normal polling while waiting. The USB
+variant keeps receiving continuously. Interrupted downloads
 restart; persistent byte-offset resume is not implemented. Successful leave events
 abort active transfers or pending installations and reboot after normal leave
 handling to clear SDK protocol state; failed leave attempts preserve the session.
@@ -171,25 +181,28 @@ MCUboot requests a trial boot. New downloads and image blocks are rejected until
 the running image is confirmed, protecting the previous firmware in the secondary
 slot. A later OTA query can retry after confirmation. Ten seconds after Zigbee
 stack startup, the application confirms the candidate only if required peripheral
-devices and the battery-monitor initialization are ready. This is a local startup check, not a
-test of successful sensor conversions or coordinator reachability. Failure
-reboots without confirmation so MCUboot can revert. A 120-second hardware
-watchdog is fed by the Zigbee scheduler every 30 seconds to recover from a hang;
-MCUboot feeds it during swaps. A fault after confirmation does not automatically
+devices are ready, plus battery-monitor initialization on non-CO2 firmware.
+This is a local startup check, not a test of successful sensor conversions or
+coordinator reachability. Failure reboots without confirmation so MCUboot can
+revert. A 120-second hardware watchdog is fed by the Zigbee scheduler every 30
+seconds to recover from a hang; MCUboot feeds it during swaps. A fault after
+confirmation does not automatically
 restore the old application.
 
-The health alarm adds a short wake every 30 seconds, and the watchdog stays active
-during sleep. Previously published current measurements predate OTA support.
-Measure idle current again and allow for higher radio current during updates.
+The health alarm wakes the battery variant every 30 seconds, and its watchdog
+stays active during sleep. Previously published current measurements predate OTA
+support. Measure idle current again and allow for higher radio current during
+updates.
 
 Before deploying to all sensors, test on one device of each hardware variant:
 
 1. Save the current flash, install the initial merged image, and verify sensor
    reporting, retained pairing (or re-pair), and ZHA's OTA endpoint/update entity.
 2. Install a higher-version image through ZHA; verify the reported version,
-   confirmation, reconnection, and temperature/humidity/CO2/battery reporting.
+   confirmation, reconnection, and temperature/humidity reporting. Check CO2
+   readings on the USB variant and battery reporting on the non-CO2 variant.
 3. Interrupt the coordinator during download. Verify timeout recovery and a
-   successful retry, with normal polling restored.
+   successful retry, with normal polling restored on the battery variant.
 4. Interrupt device power during transfer and during the swap. Verify a working
    old or new image and intact pairing data after restart.
 5. Offer a wrong-profile image, an older image, a corrupted image, and an image

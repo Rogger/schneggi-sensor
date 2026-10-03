@@ -5,17 +5,25 @@
 const struct device test_device = {0};
 zb_zcl_device_callback_param_t test_cb;
 alarm_cb registered_zcl;
-static unsigned int poll_ms, reboots, restores, aborts, feeds, confirms;
+static unsigned int poll_ms, poll_calls, reboots, restores, aborts, feeds, confirms;
 static int confirm_result, library_result, watchdog_result;
 static bool confirmed, ready = true;
 static int current_signal, current_status;
 static alarm_cb pending_download, pending_health;
 static unsigned int download_delay;
 static int schedule_result;
-static unsigned int library_calls, turbo_ms;
+static unsigned int library_calls, turbo_ms, turbo_calls;
 static alarm_cb pending_response;
 static unsigned int response_delay;
 static zb_uint8_t ota_status;
+
+#if defined(OTA_USB_PROFILE)
+#define POLL_IS(ms) (poll_calls == 0)
+#define TURBO_IS(ms) (turbo_calls == 0)
+#else
+#define POLL_IS(ms) (poll_ms == (ms))
+#define TURBO_IS(ms) (turbo_ms == (ms))
+#endif
 
 int alarm_schedule(alarm_cb cb, zb_uint8_t param, unsigned int delay)
 {
@@ -37,8 +45,8 @@ zb_zdo_app_signal_type_t zb_get_app_signal(zb_bufid_t buf, void *hdr)
 { (void)buf; (void)hdr; return current_signal; }
 void zb_set_node_descriptor_manufacturer_code_req(unsigned int id, void (*cb)(zb_ret_t))
 { assert(id == 0xFFF1); cb(RET_OK); }
-void zb_zdo_pim_set_long_poll_interval(unsigned int ms) { poll_ms = ms; }
-void zb_zdo_pim_start_turbo_poll_continuous(unsigned int ms) { turbo_ms = ms; }
+void zb_zdo_pim_set_long_poll_interval(unsigned int ms) { poll_ms = ms; poll_calls++; }
+void zb_zdo_pim_start_turbo_poll_continuous(unsigned int ms) { turbo_ms = ms; turbo_calls++; }
 zb_uint8_t zb_zcl_ota_upgrade_get_ota_status(zb_uint8_t endpoint)
 { assert(endpoint == CONFIG_ZIGBEE_FOTA_ENDPOINT); return ota_status; }
 bool device_is_ready(const struct device *dev) { (void)dev; return ready; }
@@ -74,6 +82,9 @@ static void command(int status, int result)
 
 int main(void)
 {
+#if defined(OTA_USB_PROFILE)
+  app_ota_set_sleepy(false);
+#endif
   ready = false;
   assert(app_ota_init() == -ENODEV);
   ready = true;
@@ -93,18 +104,18 @@ int main(void)
   confirmed = true;
 
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_ABORT);
-  assert(!downloading && poll_ms == 120000);
+  assert(!downloading && POLL_IS(120000));
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
-  assert(downloading && poll_ms == 100 && pending_download && download_delay == 300000);
+  assert(downloading && POLL_IS(100) && pending_download && download_delay == 300000);
   app_ota_set_long_poll(60000);
-  assert(poll_ms == 100);
+  assert(POLL_IS(100));
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_BUSY);
   assert(downloading && pending_download);
   command(ZB_ZCL_OTA_UPGRADE_STATUS_RECEIVE, ZB_ZCL_OTA_UPGRADE_STATUS_ERROR);
-  assert(!downloading && !pending_download && poll_ms == 60000);
+  assert(!downloading && !pending_download && POLL_IS(60000));
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   pending_download(0);
-  assert(aborts == 1 && reboots == 1 && restores == 1 && poll_ms == 60000);
+  assert(aborts == 1 && reboots == 1 && restores == 1 && POLL_IS(60000));
 
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   struct zigbee_fota_evt event = { .id = ZIGBEE_FOTA_EVT_FINISHED };
@@ -114,7 +125,7 @@ int main(void)
   current_signal = ZB_ZDO_SIGNAL_LEAVE;
   current_status = -EIO;
   app_ota_signal(1);
-  assert(downloading && pending_download && poll_ms == 100 && aborts == 1);
+  assert(downloading && pending_download && POLL_IS(100) && aborts == 1);
   current_status = RET_OK;
   app_ota_signal(1);
   assert(!downloading && aborts == 2 && reboots == 3);
@@ -146,15 +157,15 @@ int main(void)
   assert(library_calls == previous_calls + 1 && downloading && pending_download);
   command(ZB_ZCL_OTA_UPGRADE_STATUS_CHECK, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   assert(!downloading && waiting_for_install && !pending_download);
-  assert(poll_ms == 60000 && turbo_ms == 30000);
+  assert(POLL_IS(60000) && TURBO_IS(30000));
   /* Indefinite deferral sends no APPLY. Passing ten minutes of health ticks
    * must keep the candidate available without rebooting or fast long polls. */
   for (int i = 0; i < 20; i++) { health_tick(0); }
-  assert(reboots == 5 && waiting_for_install && !pending_download && poll_ms == 60000);
+  assert(reboots == 5 && waiting_for_install && !pending_download && POLL_IS(60000));
   command(ZB_ZCL_OTA_UPGRADE_STATUS_APPLY, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   app_ota_set_long_poll(120000);
   for (int i = 0; i < 20; i++) { health_tick(0); }
-  assert(reboots == 5 && waiting_for_install && !pending_download && poll_ms == 120000);
+  assert(reboots == 5 && waiting_for_install && !pending_download && POLL_IS(120000));
   download_timeout(0); /* A stale alarm must not expire a completed image. */
   assert(reboots == 5 && aborts == 2);
   command(ZB_ZCL_OTA_UPGRADE_STATUS_FINISH, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
@@ -173,7 +184,7 @@ int main(void)
   app_ota_set_long_poll(60000);
   schedule_result = -ENOMEM;
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
-  assert(!downloading && !pending_download && poll_ms == 60000);
+  assert(!downloading && !pending_download && POLL_IS(60000));
   assert(reboots == 8 && aborts == 4);
 
   schedule_result = 0;

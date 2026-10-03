@@ -1,13 +1,14 @@
 # Schneggi sensor 🐌 [![Build debug and release](https://github.com/Rogger/schneggi-sensor/actions/workflows/main.yml/badge.svg)](https://github.com/Rogger/schneggi-sensor/actions/workflows/main.yml)
-A low-power ZigBee sensor integrated with HomeAssistant for monitoring temperature, humidity, and CO2.
+A Zigbee sensor integrated with Home Assistant for monitoring temperature, humidity, and optional CO2.
 
 - High accuracy temperature and humidity measurements ([Sensirion SHTC3](https://www.sensirion.com/products/catalog/SHTC3/))
 - High accuracy CO2 measurement ([Sensirion SCD40](https://sensirion.com/products/catalog/SCD40)) - optional board
-- Low power consumption and long battery life
+- Low power consumption and long battery life for the non-CO2 variant
   - Hardware: nRF52840 chip, low-current linear regulator, battery monitor with on/off capability 
-  - Software: Zigbee sleepy end device
-  - Measured: 3uA average over 1 minute (without CO2). 3mA average over 1 minute (with CO2 low-power mode)
-- Can be powered with 3V to 6V (JST connector), e.g. 350mAh li-poly.
+  - Software: Zigbee sleepy end device for the non-CO2 variant
+  - Measured: 3uA average over 1 minute without CO2 (before OTA support)
+- The non-CO2 variant can be powered with 3V to 6V (JST connector), e.g. 350mAh li-poly.
+- The CO2 variant is USB-C powered. It advertises DC power, keeps its Zigbee receiver on while idle, and does not report a battery.
 - Small footprint (3,5cm x 3cm )
 - Tested with [Home Assistant](https://www.home-assistant.io/) and [SkyConnect](https://www.home-assistant.io/skyconnect/)
 
@@ -29,7 +30,7 @@ Battery-profile rejoin delays grow from 1 second exponentially to a one-hour
 cap (1, 2, 4, ..., 1024, 2048, 3600 seconds). Successful reconnection resets the
 backoff. After prolonged outages, recovery may therefore wait up to an hour
 before the next attempt, plus commissioning time. USB-powered CO2 profiles keep
-their 15-minute cap and do not enable I2C runtime PM.
+their 15-minute cap and do not enable I2C runtime PM or battery monitoring.
 
 Validate on hardware before relying on battery-life estimates: compare at least
 an hour of production-profile current capture before/after, with the debugger
@@ -113,7 +114,7 @@ make flash-production-co2
 For the CO2 production firmware:
 
 ```bash
-make build-production-co2
+make build-production-co2 OTA_SIGNING_KEY=/absolute/private/schneggi.pem
 make flash-production-co2
 ```
 
@@ -124,7 +125,8 @@ make test
 ```
 
 The host tests cover reporting thresholds and counter wraparound, battery conversion,
-CO2 attribute validation, Zigbee signal handling, and rejoin retry/cancellation behavior.
+CO2 attribute validation, Zigbee signal handling, OTA behavior for both power profiles,
+and rejoin retry/cancellation behavior.
 CI runs them in Debug and Release and builds all four firmware profiles. ADC/GPIO
 behavior, network recovery over the radio, and sleep current still require hardware tests.
 
