@@ -38,6 +38,24 @@ disconnected; check repeated sensor reads, transient I2C failures, and recovery
 after a prolonged coordinator outage. Host tests cannot verify physical sleep
 current or bus suspend/resume behavior.
 
+## Zigbee reporting
+
+ZHA can configure the standard minimum interval, maximum interval, and
+reportable change for endpoint 1's Temperature Measurement (`0x0402`) and
+Relative Humidity Measurement (`0x0405`) measured-value (`0x0000`) attributes.
+Their changes are in hundredths of a degree Celsius and hundredths of a percent
+relative humidity. Once a coordinator configures reporting, ZBOSS applies those
+settings to every new sensor reading. Until then, the firmware retains its
+0.1 °C / 1% change thresholds and 24-hour refresh.
+
+The CO2 Concentration Measurement (`0x040D`) measured value is refreshed on
+every sample, so its Zigbee minimum and maximum reporting intervals can be
+configured. NCS 2.9.2's ZBOSS treats the single-precision CO2 value as a
+changed/unchanged attribute and does not apply a numeric reportable-change
+threshold to it. The sensor still samples every minute in debug builds and
+every ten minutes in production builds; configuring a shorter reporting
+interval does not produce a newer measurement.
+
 ## PCB
 The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All relevant files can be found in the [repo](hardware)
 

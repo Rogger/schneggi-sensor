@@ -7,6 +7,7 @@
 
 #include <zcl/zb_zcl_power_config.h>
 #include <zcl/zb_zcl_temp_measurement_addons.h>
+#include <zcl/zb_zcl_reporting.h>
 
 #include "zcl/zb_zcl_concentration_measurement.h"
 
@@ -22,6 +23,27 @@ struct zcl_set_attr_call {
 
 static struct zcl_set_attr_call last_call;
 static zb_zcl_status_t next_status = ZB_ZCL_STATUS_SUCCESS;
+static zb_zcl_reporting_info_t reporting_info;
+static bool reporting_info_present;
+static struct {
+	zb_uint8_t endpoint;
+	zb_uint16_t cluster_id;
+	zb_uint8_t cluster_role;
+	zb_uint16_t attr_id;
+	zb_uint16_t manuf_code;
+} reporting_lookup;
+
+zb_zcl_reporting_info_t *zb_zcl_find_reporting_info_manuf(
+	zb_uint8_t ep, zb_uint16_t cluster_id, zb_uint8_t cluster_role,
+	zb_uint16_t attr_id, zb_uint16_t manuf_code)
+{
+	reporting_lookup.endpoint = ep;
+	reporting_lookup.cluster_id = cluster_id;
+	reporting_lookup.cluster_role = cluster_role;
+	reporting_lookup.attr_id = attr_id;
+	reporting_lookup.manuf_code = manuf_code;
+	return reporting_info_present ? &reporting_info : NULL;
+}
 
 zb_zcl_status_t zb_zcl_set_attr_val(zb_uint8_t ep,
 				    zb_uint16_t cluster_id,
@@ -175,6 +197,32 @@ static void test_battery_percentage_mapping(void)
 	assert(last_call.value[0] == value);
 }
 
+static void test_remote_reporting_detection(void)
+{
+	const zb_uint8_t endpoint = 1U;
+
+	reporting_info_present = false;
+	assert(!app_zcl_remote_reporting_configured(endpoint,
+		ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+		ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID));
+
+	reporting_info_present = true;
+	reporting_info.dst.endpoint = 0U;
+	assert(!app_zcl_remote_reporting_configured(endpoint,
+		ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+		ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID));
+
+	reporting_info.dst.endpoint = 2U;
+	assert(app_zcl_remote_reporting_configured(endpoint,
+		ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+		ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID));
+	assert(reporting_lookup.endpoint == endpoint);
+	assert(reporting_lookup.cluster_id == ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT);
+	assert(reporting_lookup.cluster_role == ZB_ZCL_CLUSTER_SERVER_ROLE);
+	assert(reporting_lookup.attr_id == ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID);
+	assert(reporting_lookup.manuf_code == ZB_ZCL_NON_MANUFACTURER_SPECIFIC);
+}
+
 int main(void)
 {
 	test_zcl_id_constants_match_spec_values();
@@ -183,6 +231,7 @@ int main(void)
 	test_co2_mapping();
 	test_battery_voltage_mapping();
 	test_battery_percentage_mapping();
+	test_remote_reporting_detection();
 
 	printf("zcl_report unit tests passed\n");
 	return 0;

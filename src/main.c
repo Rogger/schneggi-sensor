@@ -491,7 +491,11 @@ static void update_shtc3_values(uint32_t current_cycle)
 			{
 				measured_temperature = sensor_value_to_double(&temp);
 				temperature_attribute = (int16_t)(measured_temperature * 100);
-				if (app_report_due_s16(report_state.temp_valid,
+				if (app_zcl_remote_reporting_configured(
+						 SCHNEGGI_ENDPOINT,
+						 ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
+						 ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID) ||
+					app_report_due_s16(report_state.temp_valid,
 						 report_state.temp_value,
 						 report_state.temp_cycle,
 						 temperature_attribute,
@@ -529,7 +533,11 @@ static void update_shtc3_values(uint32_t current_cycle)
 			{
 				measured_humidity = sensor_value_to_double(&hum);
 				humidity_attribute = (int16_t)(measured_humidity * 100);
-				if (app_report_due_s16(report_state.humidity_valid,
+				if (app_zcl_remote_reporting_configured(
+						 SCHNEGGI_ENDPOINT,
+						 ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
+						 ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID) ||
+					app_report_due_s16(report_state.humidity_valid,
 						 report_state.humidity_value,
 						 report_state.humidity_cycle,
 						 humidity_attribute,
