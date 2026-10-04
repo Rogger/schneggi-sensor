@@ -169,6 +169,10 @@ checks that PCB rule-check failures prevent manufacturing exports under parallel
 CI runs them in Debug and Release and builds all four firmware profiles. ADC/GPIO
 behavior, network recovery over the radio, and sleep current still require hardware tests.
 
+Version tags also run the [GitHub release workflow](docs/releases.md), which publishes
+clearly labeled public-development-key firmware, a ready-to-copy ZHA OTA ZIP,
+and checksums after validation. Releases preserve the separate CO2/non-CO2 firmware versions.
+
 `make clean` accepts only `build` or `build_*` directories inside this project.
 
 ### 4) Flash
