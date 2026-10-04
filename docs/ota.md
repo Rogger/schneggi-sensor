@@ -43,8 +43,9 @@ require a private key. Use a separate build directory when changing signing keys
 ## Build an update
 
 Increase `CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION` in the desired profile's `prj_*.conf`,
-for example from `1.0.0` to `1.0.1`. Keep versions aligned across profiles when
-releasing the same change. Rebuild with the original signing key:
+for example from `1.0.0` to `1.0.1`. Keep debug and production versions aligned
+within each hardware variant; CO2 and non-CO2 have separate version histories.
+Rebuild with the original signing key:
 
 ```sh
 make build-production OTA_SIGNING_KEY=/absolute/private/schneggi.pem
