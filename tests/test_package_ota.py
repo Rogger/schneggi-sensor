@@ -114,6 +114,26 @@ class OtaTests(unittest.TestCase):
             self.assertEqual((output / 'index.json').read_text(), 'existing index')
             self.assertEqual((output / second.name).read_bytes(), b'existing firmware')
 
+    def test_failed_firmware_write_can_be_retried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'image.zigbee'
+            source.write_bytes(b'complete firmware')
+            output = root / 'output'
+            output.mkdir()
+            (output / 'index.json').write_text('previous index')
+            validated = (source, {'image_type': 0x101, 'file_version': 1})
+            with patch.object(ota, 'validate_build', return_value=validated):
+                with patch.object(Path, 'replace', side_effect=OSError('write failed')):
+                    with self.assertRaises(OSError):
+                        ota.package([root], output, '/config/zigbee_ota')
+                self.assertEqual(list(output.iterdir()), [output / 'index.json'])
+                self.assertEqual((output / 'index.json').read_text(), 'previous index')
+                ota.package([root], output, '/config/zigbee_ota')
+            self.assertEqual((output / source.name).read_bytes(), source.read_bytes())
+            entry = json.loads((output / 'index.json').read_text())['firmwares'][0]
+            self.assertEqual(entry['path'], '/config/zigbee_ota/image.zigbee')
+
     def test_package_rejects_ambiguous_filenames_and_empty_builds(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -160,9 +180,10 @@ class OtaTests(unittest.TestCase):
             self.assertEqual('min_hardware_version' in entry, restricted)
             self.assertEqual('max_hardware_version' in entry, restricted)
             original_index = (build / 'staged/index.json').read_bytes()
-            with patch.object(ota.shutil, 'copyfile') as copy:
+            with patch.object(ota, 'write_atomic', wraps=ota.write_atomic) as write:
                 ota.package([build], build / 'staged', '/config/zigbee_ota')
-                copy.assert_not_called()
+                write.assert_called_once()
+                self.assertEqual(write.call_args.args[0], build / 'staged/index.json')
             with patch.object(Path, 'replace', side_effect=OSError('replace failed')):
                 with self.assertRaises(OSError):
                     ota.package([build], build / 'staged', '/new/location')

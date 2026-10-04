@@ -6,7 +6,6 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
-import shutil
 import struct
 import tempfile
 
@@ -122,6 +121,19 @@ def validate_build(build):
     return path, metadata
 
 
+def write_atomic(destination, data):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='wb', dir=destination.parent, delete=False) as file:
+            temporary = Path(file.name)
+            file.write(data)
+        temporary.chmod(0o644)
+        temporary.replace(destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def package(builds, output, ha_directory):
     if not builds:
         raise ValueError("At least one firmware build is required")
@@ -142,20 +154,11 @@ def package(builds, output, ha_directory):
     for source, metadata in validated:
         destination = output / source.name
         if not destination.exists():
-            shutil.copyfile(source, destination)
+            write_atomic(destination, source.read_bytes())
         metadata['path'] = str(PurePosixPath(ha_directory) / source.name)
         firmwares.append(metadata)
     # Readers must see either the previous complete index or the new one.
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', dir=output, delete=False) as index:
-            temporary = Path(index.name)
-            index.write(json.dumps({"firmwares": firmwares}, indent=2) + '\n')
-        temporary.chmod(0o644)
-        temporary.replace(output / 'index.json')
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    write_atomic(output / 'index.json', (json.dumps({"firmwares": firmwares}, indent=2) + '\n').encode())
 
 
 if __name__ == '__main__':
