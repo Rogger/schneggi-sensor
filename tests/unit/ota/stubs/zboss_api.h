@@ -14,14 +14,19 @@
 #define CONFIG_RAM_POWER_DOWN_LIBRARY 1
 #define IS_ENABLED(x) (x)
 #define ARG_UNUSED(x) (void)(x)
+#define ZVUNUSED(x) (void)(x)
 #define LOG_MODULE_REGISTER(...)
+#define LOG_INF(...)
 #define LOG_DBG(...)
 #define LOG_WRN(...)
 #define LOG_ERR(...)
 #define LOG_LEVEL_INF 3
 #define RET_OK 0
+#define RET_NOT_FOUND -2
 #define RET_NOT_IMPLEMENTED -1
 #define ZB_ALARM_ANY_PARAM 0xff
+#define ZB_ALARM_ALL_CB 0xfe
+#define ZB_BEACON_INTERVAL_USEC 15360U
 #define ZB_MILLISECONDS_TO_BEACON_INTERVAL(x) (x)
 #define ZB_ZCL_OTA_UPGRADE_VALUE_CB_ID 1
 #define ZB_ZDO_SIGNAL_SKIP_STARTUP 1
@@ -52,7 +57,9 @@ typedef struct {
 } zb_zcl_device_callback_param_t;
 extern zb_zcl_device_callback_param_t test_cb;
 #define ZB_BUF_GET_PARAM(buf, type) ((type *)&test_cb)
-typedef void (*alarm_cb)(zb_uint8_t);
+typedef void (*zb_callback_t)(zb_uint8_t);
+typedef zb_callback_t alarm_cb;
+typedef uint32_t zb_time_t;
 int alarm_schedule(alarm_cb cb, zb_uint8_t param, unsigned int delay);
 int alarm_cancel(alarm_cb cb, zb_uint8_t param);
 #define ZB_SCHEDULE_APP_ALARM alarm_schedule

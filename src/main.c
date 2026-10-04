@@ -10,9 +10,10 @@
 #include "app_environment.h"
 #include "app_battery.h"
 #include "app_ota.h"
+#include "app_reboot.h"
+#include "app_scheduler.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
-#include <zephyr/sys/reboot.h>
 #include <ram_pwrdn.h>
 
 #include <zboss_api.h>
@@ -30,7 +31,7 @@
 #include "zcl/zb_zcl_concentration_measurement.h"
 #include "app_zcl_report.h"
 #include "co2_zcl_logic.h"
-#include "rejoin_logic.h"
+#include "app_network.h"
 #include "zigbee_signal_logic.h"
 
 #define APP_HAS_SCD4X DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
@@ -387,38 +388,48 @@ static void init_clusters_attr(void)
 		co2_zcl_single_from_float(co2_zcl_fraction_from_ppm(100.0));
 }
 
-/**@brief Function to toggle the identify LED
- *
- * @param  bufid  Unused parameter, required by ZBOSS scheduler API.
- */
-static void toggle_identify_led(zb_bufid_t bufid)
+static bool identifying;
+
+static void stop_identifying(void)
 {
-	gpio_pin_toggle_dt(&led_spec);
-	ZB_SCHEDULE_APP_ALARM(toggle_identify_led, bufid, ZB_MILLISECONDS_TO_BEACON_INTERVAL(100));
+	identifying = false;
+	gpio_pin_set_dt(&led_spec, 0);
 }
 
-/**@brief Function to handle identify notification events on the first endpoint.
- *
- * @param  bufid  Unused parameter, required by ZBOSS scheduler API.
- */
-static void identify_cb(zb_bufid_t bufid)
+static void toggle_identify_led(zb_uint8_t unused)
 {
-	zb_ret_t zb_err_code;
+	ZVUNUSED(unused);
+	/* A callback already dequeued when Identify stops must not restart blinking. */
+	if (!identifying)
+	{
+		return;
+	}
+	gpio_pin_toggle_dt(&led_spec);
+	if (app_alarm_replace(toggle_identify_led, 0, 100) != RET_OK)
+	{
+		LOG_WRN("Unable to schedule Identify blink");
+		stop_identifying();
+	}
+}
 
-	if (bufid)
+static void identify_cb(zb_uint8_t active)
+{
+	if (active)
 	{
 		LOG_INF("Start identify");
+		identifying = true;
 		gpio_pin_set_dt(&led_spec, 1);
-		/* Schedule a self-scheduling function that will toggle the LED. */
-		ZB_SCHEDULE_APP_CALLBACK(toggle_identify_led, bufid);
+		if (app_alarm_replace(toggle_identify_led, 0, 100) != RET_OK)
+		{
+			LOG_WRN("Unable to start Identify blink");
+			stop_identifying();
+		}
 	}
 	else
 	{
 		LOG_INF("Stop identify");
-		/* Cancel the toggling function alarm and restore current Zigbee LED state. */
-		zb_err_code = ZB_SCHEDULE_APP_ALARM_CANCEL(toggle_identify_led, ZB_ALARM_ANY_PARAM);
-		gpio_pin_set_dt(&led_spec, 0);
-		ZVUNUSED(zb_err_code);
+		stop_identifying();
+		ZB_SCHEDULE_APP_ALARM_CANCEL(toggle_identify_led, ZB_ALARM_ALL_CB);
 	}
 }
 
@@ -495,7 +506,6 @@ static void update_sensor_values(uint32_t current_cycle)
 }
 
 static uint32_t measurement_cycles = 0;
-static struct app_rejoin_state rejoin_state = {0};
 
 static void sensor_loop(zb_bufid_t bufid)
 {
@@ -508,13 +518,11 @@ static void sensor_loop(zb_bufid_t bufid)
 	LOG_DBG("-- Loop %" PRIu32 " / %" PRIu32 " (%s)--", current_cycle, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
 #endif
 
-	ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
-	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-										 ZB_MILLISECONDS_TO_BEACON_INTERVAL(
-											 SLEEP_INTERVAL_SECONDS * 1000));
-	if (ret != RET_OK)
+	if (app_alarm_replace(sensor_loop, 0, SLEEP_INTERVAL_SECONDS * 1000U) != RET_OK)
 	{
-		LOG_ERR("Unable to schedule the sensor loop");
+		LOG_ERR("Unable to schedule sensor measurements; restarting");
+		app_reboot();
+		return;
 	}
 
 	update_sensor_values(current_cycle);
@@ -533,277 +541,62 @@ static void sensor_loop(zb_bufid_t bufid)
 #endif
 }
 
-static struct app_zigbee_state app_state;
-
-static void start_network_steering(zb_uint8_t param);
-static void execute_rejoin_outcome(const struct app_rejoin_outcome *outcome)
-{
-	if (outcome->log_started)
-	{
-		LOG_INF("Started network rejoin procedure");
-	}
-
-	if (outcome->log_stopped)
-	{
-		LOG_INF("Network rejoin procedure stopped");
-	}
-
-	if (outcome->schedule_retry)
-	{
-		if (ZB_SCHEDULE_APP_ALARM(start_network_steering,
-								  ZB_FALSE,
-								  ZB_MILLISECONDS_TO_BEACON_INTERVAL(outcome->retry_delay_s * 1000U)) != RET_OK)
-		{
-			LOG_ERR("Unable to schedule network rejoin retry");
-			return;
-		}
-
-		app_rejoin_mark_retry_pending(&rejoin_state);
-		LOG_INF("Scheduled network rejoin retry in %" PRIu32 " s", outcome->retry_delay_s);
-	}
-
-	if (outcome->stop_deferred)
-	{
-		LOG_WRN("Unable to cancel pending rejoin attempt immediately");
-	}
-}
-
-static void start_network_steering(zb_uint8_t param)
-{
-	struct app_rejoin_outcome outcome;
-
-	ZVUNUSED(param);
-
-	if (!app_rejoin_begin_retry(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome))
-	{
-		execute_rejoin_outcome(&outcome);
-		return;
-	}
-	LOG_INF("Starting network steering retry");
-
-	if (bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING) != ZB_TRUE)
-	{
-		LOG_WRN("Failed to start network steering, scheduling next retry");
-		app_rejoin_process(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome);
-		execute_rejoin_outcome(&outcome);
-	}
-}
-
-static void start_network_rejoin(void)
-{
-	struct app_rejoin_outcome outcome;
-
-	app_rejoin_start(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome);
-	execute_rejoin_outcome(&outcome);
-}
-
-static void stop_network_rejoin(void)
-{
-	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM_CANCEL(start_network_steering, ZB_ALARM_ANY_PARAM);
-	struct app_rejoin_outcome outcome;
-
-	app_rejoin_stop(&rejoin_state, ret == RET_OK || ret == RET_NOT_FOUND, &outcome);
-	execute_rejoin_outcome(&outcome);
-}
-
-static void execute_signal_actions(const struct app_zigbee_actions *actions)
-{
-	zb_bool_t comm_status = ZB_TRUE;
-
-	if (actions->commissioning_mode == APP_COMMISSIONING_INITIALIZATION)
-	{
-		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
-	}
-
-	if (actions->commissioning_mode != APP_COMMISSIONING_NONE &&
-		comm_status != ZB_TRUE)
-	{
-		LOG_WRN("Commissioning error");
-	}
-
-	if (actions->schedule_sensor_loop_cancel)
-	{
-		ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
-	}
-
-	if (actions->schedule_sensor_loop)
-	{
-		ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-							  ZB_MILLISECONDS_TO_BEACON_INTERVAL(actions->schedule_sensor_loop_delay_ms));
-	}
-
-	if (actions->set_long_poll_interval)
-	{
-		/* long poll uses milliseconds; keepalive uses beacon intervals */
-		app_ota_set_long_poll(actions->long_poll_interval_ms);
-	}
-
-	if (actions->stop_rejoin)
-	{
-		stop_network_rejoin();
-	}
-
-	if (actions->start_rejoin)
-	{
-		start_network_rejoin();
-	}
-
-	if (actions->request_sleep && !APP_HAS_SCD4X)
-	{
-		zb_sleep_now();
-	}
-}
-
 void zboss_signal_handler(zb_uint8_t param)
 {
-	zb_zdo_app_signal_hdr_t *p_sg_p = NULL;
-	zb_zdo_app_signal_type_t sig = zb_get_app_signal(param, &p_sg_p);
+	zb_zdo_app_signal_hdr_t *header = NULL;
+	zb_zdo_app_signal_type_t signal = zb_get_app_signal(param, &header);
 	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(param);
-	struct app_zigbee_actions actions;
-	bool status_ok = (status == RET_OK);
+	enum app_zigbee_signal app_signal = APP_ZIGBEE_SIGNAL_OTHER;
+	bool parent_link_failure = false;
 
-	switch (sig)
+	switch (signal)
 	{
 	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
-		LOG_DBG("> SKIP_STARTUP");
-		LOG_DBG("ZigBee stack initialized. Start commissioning");
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_SKIP_STARTUP,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		LOG_DBG("Zigbee stack startup: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_SKIP_STARTUP;
 		break;
-
 	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
-		LOG_DBG("> DEVICE_FIRST_START");
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		LOG_DBG("First device startup: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START;
 		break;
-
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
-		LOG_DBG("> DEVICE_REBOOT");
-		if (status_ok)
-		{
-			LOG_INF("Joined network successfully on reboot.");
-		}
-		else
-		{
-			LOG_WRN("Reboot rejoin failed. Status: %d", status);
-		}
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_DEVICE_REBOOT,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		LOG_INF("Reboot rejoin result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_REBOOT;
 		break;
-
 	case ZB_BDB_SIGNAL_STEERING:
-		LOG_DBG("> STEERING");
-
-		if (status_ok)
-		{
-			LOG_INF("Joined network successfully!");
-		}
-		else
-		{
-			LOG_WRN("Failed to join network. Status: %d", status);
-		}
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_STEERING,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		LOG_INF("Network steering result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_STEERING;
 		break;
-
 	case ZB_ZDO_SIGNAL_LEAVE:
-		LOG_DBG("> LEAVE");
-
-		if (status_ok)
-		{
-			zb_zdo_signal_leave_params_t *p_leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_leave_params_t);
-			LOG_INF("Network left. Leave type: %d", p_leave_params->leave_type);
-			app_zigbee_handle_signal(&app_state,
-									 APP_ZIGBEE_SIGNAL_LEAVE,
-									 status_ok,
-									 p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN,
-									 false,
-									 &actions);
-			execute_signal_actions(&actions);
-		}
-		else
-		{
-			LOG_ERR("Unable to leave network. Status: %d", status);
-			app_zigbee_handle_signal(&app_state,
-									 APP_ZIGBEE_SIGNAL_LEAVE,
-									 status_ok,
-									 false,
-									 false,
-									 &actions);
-			execute_signal_actions(&actions);
-		}
+		LOG_INF("Network leave result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_LEAVE;
 		break;
-
 	case ZB_COMMON_SIGNAL_CAN_SLEEP:
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_CAN_SLEEP,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		app_signal = APP_ZIGBEE_SIGNAL_CAN_SLEEP;
 		break;
-
 	case ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
-		LOG_DBG("> PRODUCTION_CONFIG_READY");
-		if (status != RET_OK)
-		{
-			LOG_DBG("Production config is not present or invalid");
-		}
-		else
-		{
-			LOG_DBG("Production config ready");
-		}
+		LOG_DBG("Production config result: %d", status);
 		break;
-
 	case ZB_NLME_STATUS_INDICATION:
 	{
-		LOG_DBG("> STATUS_INDICATION");
-		LOG_DBG("NLME Status indication. Status: %d", status);
-
-		zb_zdo_signal_nlme_status_indication_params_t *nlme_status_ind =
-			ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_nlme_status_indication_params_t);
-		bool parent_link_failure =
-			(nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE);
+		zb_zdo_signal_nlme_status_indication_params_t *indication =
+			ZB_ZDO_SIGNAL_GET_PARAMS(header, zb_zdo_signal_nlme_status_indication_params_t);
+		parent_link_failure =
+			indication->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE;
 		if (parent_link_failure)
 		{
 			LOG_WRN("Parent link failure");
 		}
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION,
-								 status_ok,
-								 false,
-								 parent_link_failure,
-								 &actions);
-		execute_signal_actions(&actions);
+		app_signal = APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION;
+		break;
+	}
+	default:
+		LOG_INF("Unhandled signal %d. Status: %d", signal, status);
 		break;
 	}
 
-	default:
-		/* Unhandled signal. For more information see: zb_zdo_app_signal_type_e and zb_ret_e */
-		LOG_INF("Unhandled signal %d. Status: %d", sig, status);
-		break;
-	}
+	app_network_handle_signal(app_signal, status == RET_OK, parent_link_failure,
+				  sensor_loop, !APP_HAS_SCD4X);
 
 	/* Process leave/rejoin actions before OTA may reboot to reset its session. */
 	app_ota_signal(param);
@@ -818,7 +611,7 @@ int main(void)
 	LOG_INF("Schneggi sensor starting...");
 	if (app_ota_init() != 0) {
 		LOG_ERR("OTA/watchdog initialization failed");
-		sys_reboot(SYS_REBOOT_COLD);
+		app_reboot();
 		return -1;
 	}
 

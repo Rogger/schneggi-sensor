@@ -27,13 +27,11 @@ enum app_commissioning_mode {
 };
 
 struct app_zigbee_state {
-	bool joining_signal_received;
 	bool stack_initialised;
 };
 
 struct app_zigbee_actions {
 	enum app_commissioning_mode commissioning_mode;
-	bool schedule_sensor_loop_cancel;
 	bool schedule_sensor_loop;
 	uint32_t schedule_sensor_loop_delay_ms;
 	bool set_long_poll_interval;
@@ -41,6 +39,7 @@ struct app_zigbee_actions {
 	bool start_rejoin;
 	bool stop_rejoin;
 	bool request_sleep;
+	bool restart;
 };
 
 void app_zigbee_actions_reset(struct app_zigbee_actions *actions);
@@ -48,7 +47,6 @@ void app_zigbee_actions_reset(struct app_zigbee_actions *actions);
 void app_zigbee_handle_signal(struct app_zigbee_state *state,
 			      enum app_zigbee_signal signal,
 			      bool status_ok,
-			      bool leave_type_rejoin,
 			      bool parent_link_failure,
 			      struct app_zigbee_actions *actions);
 

@@ -28,6 +28,7 @@ static zb_uint8_t ota_status;
 int alarm_schedule(alarm_cb cb, zb_uint8_t param, unsigned int delay)
 {
   (void)param;
+  if (schedule_result != RET_OK) { return schedule_result; }
   if (cb == download_timeout) { pending_download = cb; download_delay = delay; }
   if (cb == health_tick) { pending_health = cb; }
   if (cb == response_timeout) { pending_response = cb; response_delay = delay; }
@@ -106,7 +107,7 @@ int main(void)
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_ABORT);
   assert(!downloading && POLL_IS(120000));
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
-  assert(downloading && POLL_IS(100) && pending_download && download_delay == 300000);
+  assert(downloading && POLL_IS(100) && pending_download && download_delay == 19532);
   app_ota_set_long_poll(60000);
   assert(POLL_IS(100));
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_BUSY);
@@ -193,7 +194,7 @@ int main(void)
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   ota_status = ZB_ZCL_OTA_UPGRADE_IMAGE_STATUS_DOWNLOADED;
   command(ZB_ZCL_OTA_UPGRADE_STATUS_CHECK, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
-  assert(pending_response && response_delay == 300000 && !pending_download);
+  assert(pending_response && response_delay == 19532 && !pending_download);
   current_signal = ZB_ZDO_SIGNAL_LEAVE;
   current_status = -EIO;
   app_ota_signal(1);
@@ -255,5 +256,18 @@ int main(void)
     assert(!waiting_for_install && !pending_response && !pending_download);
     assert(reboots == before_reboots + 1 && aborts == before_aborts + 1);
   }
+  /* A scheduling failure must neither confirm a trial image nor keep feeding
+   * its watchdog without a future health tick. Both entry paths restart.
+   */
+  unsigned int before_reboots = reboots, before_feeds = feeds, before_confirms = confirms;
+  confirmed = false;
+  schedule_result = -ENOMEM;
+  health_tick(0);
+  assert(reboots == before_reboots + 1 && feeds == before_feeds && confirms == before_confirms);
+  current_signal = ZB_ZDO_SIGNAL_SKIP_STARTUP;
+  current_status = RET_OK;
+  app_ota_signal(1);
+  assert(reboots == before_reboots + 2 && confirms == before_confirms);
+  assert(restores == reboots);
   return 0;
 }
