@@ -1,9 +1,5 @@
 / {
 
-	zephyr,user {
-		io-channels = <&adc 0>;
-	};
-
 	vbatt {
 		compatible = "voltage-divider";
 		/* The application owns ADC sampling and power-gpios. Prevent the

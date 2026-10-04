@@ -18,3 +18,5 @@ add_subdirectory(measurement_logic)
 add_subdirectory(zcl_report)
 add_subdirectory(shtc3)
 add_subdirectory(ota)
+
+add_subdirectory(sensors)

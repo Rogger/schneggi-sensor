@@ -12,22 +12,6 @@ bool app_report_due_s16(bool valid,
 			uint32_t current_cycle,
 			uint32_t refresh_cycles);
 
-bool app_report_due_s32(bool valid,
-			int32_t previous_value,
-			uint32_t previous_cycle,
-			int32_t new_value,
-			int32_t threshold,
-			uint32_t current_cycle,
-			uint32_t refresh_cycles);
-
-bool app_report_due_u8(bool valid,
-		       uint8_t previous_value,
-		       uint32_t previous_cycle,
-		       uint8_t new_value,
-		       uint8_t threshold,
-		       uint32_t current_cycle,
-		       uint32_t refresh_cycles);
-
 unsigned int app_battery_level_pptt(unsigned int batt_mv);
 int32_t app_battery_millivolts_from_adc(int32_t adc_mv);
 uint8_t app_battery_voltage_zcl_attribute(int32_t battery_mv);

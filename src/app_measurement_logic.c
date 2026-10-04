@@ -34,21 +34,9 @@ static const struct battery_level_point lipo_discharge_curve[] = {
 #define APP_BATTERY_DIVIDER_HIGH_OHM 1500000
 #define APP_BATTERY_DIVIDER_LOW_OHM 180000
 
-static uint32_t abs_diff_s32(int32_t left, int32_t right)
-{
-	int64_t diff = (int64_t)left - (int64_t)right;
-
-	return diff >= 0 ? (uint32_t)diff : (uint32_t)-diff;
-}
-
 static uint16_t abs_diff_s16(int16_t left, int16_t right)
 {
 	return left >= right ? (uint16_t)(left - right) : (uint16_t)(right - left);
-}
-
-static uint8_t abs_diff_u8(uint8_t left, uint8_t right)
-{
-	return left >= right ? (uint8_t)(left - right) : (uint8_t)(right - left);
 }
 
 bool app_report_due_s16(bool valid,
@@ -64,44 +52,6 @@ bool app_report_due_s16(bool valid,
 	}
 
 	if (abs_diff_s16(new_value, previous_value) >= (uint16_t)threshold) {
-		return true;
-	}
-
-	return (current_cycle - previous_cycle) >= refresh_cycles;
-}
-
-bool app_report_due_s32(bool valid,
-			int32_t previous_value,
-			uint32_t previous_cycle,
-			int32_t new_value,
-			int32_t threshold,
-			uint32_t current_cycle,
-			uint32_t refresh_cycles)
-{
-	if (!valid) {
-		return true;
-	}
-
-	if (abs_diff_s32(new_value, previous_value) >= (uint32_t)threshold) {
-		return true;
-	}
-
-	return (current_cycle - previous_cycle) >= refresh_cycles;
-}
-
-bool app_report_due_u8(bool valid,
-		       uint8_t previous_value,
-		       uint32_t previous_cycle,
-		       uint8_t new_value,
-		       uint8_t threshold,
-		       uint32_t current_cycle,
-		       uint32_t refresh_cycles)
-{
-	if (!valid) {
-		return true;
-	}
-
-	if (abs_diff_u8(new_value, previous_value) >= threshold) {
 		return true;
 	}
 
