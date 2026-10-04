@@ -36,8 +36,9 @@ SDK key:
 make build-debug OTA_ALLOW_TEST_KEY=ON
 ```
 
-CI artifacts also use that public key and are named accordingly. They are not
-production releases. `OTA_ALLOW_TEST_KEY` defaults to `OFF`; ordinary builds
+CI artifacts and automated GitHub release assets also use that public key and
+are labeled as development firmware, including the production power profiles.
+`OTA_ALLOW_TEST_KEY` defaults to `OFF`; ordinary builds
 require a private key. Use a separate build directory when changing signing keys.
 
 ## Build an update
@@ -162,8 +163,9 @@ persistent network settings.
 
 See [ZHA firmware updates](https://www.home-assistant.io/integrations/zha/#ota-updates-of-zigbee-device-firmware)
 and [zigpy provider configuration](https://github.com/zigpy/zigpy/wiki/OTA-Configuration).
-An HTTPS index via `zigpy_remote` can be added later; this implementation stages
-local artifacts and does not publish releases or change Home Assistant remotely.
+An HTTPS index via `zigpy_remote` can be added later. The [release workflow](releases.md)
+publishes downloadable assets, including a ZIP for the local ZHA provider; it does
+not change Home Assistant remotely.
 
 ## Recovery, flash limits, and hardware acceptance
 

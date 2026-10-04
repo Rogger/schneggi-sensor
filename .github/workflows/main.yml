@@ -1,7 +1,17 @@
 name: Build debug and release
 on:
   push:
+    branches: ['**']
   pull_request:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Exact commit to test and build for a release
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   unit-tests:
@@ -11,6 +21,9 @@ jobs:
         build_type: [Debug, Release]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
       - name: Run host unit tests
         run: |
           python3 -m unittest discover -s tests -p 'test_*.py'
@@ -31,6 +44,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: sensor
+          ref: ${{ inputs.source_ref || github.sha }}
+          persist-credentials: false
           
       - name: Prepare west project
         run: |
@@ -55,22 +70,24 @@ jobs:
             done
           done
 
-      - name: Validate and package ZHA firmware
+      - name: Verify application signatures
         working-directory: sensor
         run: |
-          python3 scripts/package_ota.py build_debug_co2 build_debug_no_scd4x build_production_co2 build_production_no_scd4x
           for image in build_*/*/zephyr/zephyr.signed.bin; do
             python3 ../bootloader/mcuboot/scripts/imgtool.py verify \
               -k ../bootloader/mcuboot/root-ec-p256.pem "$image"
           done
+
+      - name: Prepare downloadable release assets
+        working-directory: sensor
+        run: |
+          python3 scripts/package_release.py \
+            build_debug_co2 build_debug_no_scd4x build_production_co2 build_production_no_scd4x \
+            --commit "$(git rev-parse HEAD)" --output build_release_assets
       
       - name: Store firmware
         uses: actions/upload-artifact@v4
         with:
           name: development-firmware-public-test-key
-          path: |
-            sensor/build_*/merged.hex
-            sensor/build_*/partitions.yml
-            sensor/build_*/*/zephyr/zephyr.signed.bin
-            sensor/build_ota_package/*
+          path: sensor/build_release_assets/*
           if-no-files-found: error
