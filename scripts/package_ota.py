@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import struct
+import tempfile
 
 PROFILES = {
     0x0101: "production",
@@ -65,6 +66,26 @@ def parse_ota(data):
     }, data[header_size + 6:]
 
 
+def validate_dfu_payload(payload, signed):
+    # NCS's dfu_multi_image_tool.py emits a canonical CBOR header containing
+    # {"img": [{"id": 0, "size": len(signed)}]}. Only this single application
+    # image is supported by our nRF52840 build. Compare the complete package,
+    # not just its suffix: a wrong image ID or length changes what DFU writes.
+    size = len(signed)
+    if size < 24:
+        encoded_size = bytes([size])
+    elif size <= 0xFF:
+        encoded_size = b'\x18' + struct.pack('>B', size)
+    elif size <= 0xFFFF:
+        encoded_size = b'\x19' + struct.pack('>H', size)
+    else:
+        encoded_size = b'\x1a' + struct.pack('>I', size)
+    header = b'\xa1\x63img\x81\xa2\x62id\x00\x64size' + encoded_size
+    expected = struct.pack('<H', len(header)) + header + signed
+    if payload != expected:
+        raise ValueError("DFU package must contain exactly the current signed application as image 0")
+
+
 def validate_build(build):
     configs = list(build.glob('*/zephyr/.config'))
     apps = [p for p in configs if read_config(p).get('CONFIG_ZIGBEE_FOTA') == 'y']
@@ -88,8 +109,6 @@ def validate_build(build):
     if payload != (build / 'dfu_multi_image.bin').read_bytes():
         raise ValueError("OTA payload differs from the generated DFU package")
     signed = (apps[0].parent / 'zephyr.signed.bin').read_bytes()
-    if not payload.endswith(signed):
-        raise ValueError("DFU package does not contain the current signed application")
     if len(signed) < 32 or struct.unpack_from('<I', signed)[0] != 0x96F3B83D:
         raise ValueError("Missing MCUboot image header")
     major, minor, patch = struct.unpack_from('<BBH', signed, 20)
@@ -98,26 +117,45 @@ def validate_build(build):
     # Move-swap needs a spare erase page and a trailer page in each 0x75000 slot.
     if len(signed) > 0x73000:
         raise ValueError("Signed image exceeds the fixed OTA slot capacity")
+    validate_dfu_payload(payload, signed)
     metadata['changelog'] = f"Schneggi {PROFILES[image_type]} {major}.{minor}.{patch}"
     return path, metadata
 
 
 def package(builds, output, ha_directory):
+    if not builds:
+        raise ValueError("At least one firmware build is required")
     validated = [validate_build(build) for build in builds]
     identities = [(meta['image_type'], meta['file_version']) for _, meta in validated]
     if len(set(identities)) != len(identities):
         raise ValueError("Duplicate firmware identity")
+    names = [source.name for source, _ in validated]
+    if len(set(names)) != len(names):
+        raise ValueError("Firmware filenames must be unique")
+    # Reject conflicts before copying any files into an existing package.
+    for source, _ in validated:
+        destination = output / source.name
+        if destination.exists() and destination.read_bytes() != source.read_bytes():
+            raise ValueError(f"Refusing to replace different firmware: {destination}")
     output.mkdir(parents=True, exist_ok=True)
     firmwares = []
     for source, metadata in validated:
         destination = output / source.name
-        if destination.exists() and destination.read_bytes() != source.read_bytes():
-            raise ValueError(f"Refusing to replace different firmware: {destination}")
-        if source.resolve() != destination.resolve():
+        if not destination.exists():
             shutil.copyfile(source, destination)
         metadata['path'] = str(PurePosixPath(ha_directory) / source.name)
         firmwares.append(metadata)
-    (output / 'index.json').write_text(json.dumps({"firmwares": firmwares}, indent=2) + '\n')
+    # Readers must see either the previous complete index or the new one.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', dir=output, delete=False) as index:
+            temporary = Path(index.name)
+            index.write(json.dumps({"firmwares": firmwares}, indent=2) + '\n')
+        temporary.chmod(0o644)
+        temporary.replace(output / 'index.json')
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 if __name__ == '__main__':

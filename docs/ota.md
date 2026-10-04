@@ -61,7 +61,10 @@ python3 scripts/package_ota.py build_production build_production_co2
 ```
 
 The tool validates the OTA header, hardware/profile identifiers, image sizes,
-the generated DFU payload, and agreement between MCUboot and Zigbee versions.
+the generated DFU payload (one application image with ID 0 and its exact size),
+and agreement between MCUboot and Zigbee versions. Conflicting filenames or
+existing firmware are rejected before staging files. The index is replaced
+atomically, and identical firmware files are left untouched when packaging again.
 MCUboot verifies the cryptographic signature on-device before booting a candidate.
 The index includes a checksum for ZHA's file-integrity validation.
 
