@@ -32,6 +32,19 @@ backoff. After prolonged outages, recovery may therefore wait up to an hour
 before the next attempt, plus commissioning time. USB-powered CO2 profiles keep
 their 15-minute cap and do not enable I2C runtime PM or battery monitoring.
 
+Battery measurements run hourly in debug builds and daily in production builds.
+If sampling or updating either battery attribute fails, the firmware retries on
+the next sensor cycle (one or ten minutes respectively). A successful update
+starts the next battery interval. The firmware attempts to disable the divider
+on every path and logs cleanup failures.
+
+The firmware restarts if Zigbee startup or scheduling a required measurement,
+rejoin, or watchdog alarm fails, so it cannot stay running indefinitely without
+that work. Ordinary join failures still use the rejoin backoff described above.
+Alarm replacement removes previous instances and uses overflow-safe conversion
+for the full supported sampling range of 1–1440 minutes. Repeated Identify
+requests keep one blink alarm; scheduling failure stops the LED animation.
+
 Validate on hardware before relying on battery-life estimates: compare at least
 an hour of production-profile current capture before/after, with the debugger
 disconnected; check repeated sensor reads, transient I2C failures, and recovery
@@ -147,7 +160,12 @@ make test
 
 The host tests cover reporting thresholds and counter wraparound, battery conversion,
 CO2 attribute validation, Zigbee signal handling, OTA behavior for both power profiles,
-and rejoin retry/cancellation behavior.
+and rejoin retry/cancellation behavior. They also exercise sensor fetch/read failures,
+failed attribute writes, custom reporting and resets, exact fixed-point conversion,
+battery ADC/GPIO error cleanup and retry timing, and OTA package validation/index updates.
+Runtime tests cover failed startup, alarm exhaustion, cancellation failures,
+duplicate reconnect signals, and long scheduling intervals. The Python suite also
+checks that PCB rule-check failures prevent manufacturing exports under parallel make.
 CI runs them in Debug and Release and builds all four firmware profiles. ADC/GPIO
 behavior, network recovery over the radio, and sleep current still require hardware tests.
 

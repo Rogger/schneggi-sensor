@@ -7,11 +7,13 @@
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/pm/device_runtime.h>
-#include "app_shtc3.h"
+#include "app_environment.h"
+#include "app_battery.h"
 #include "app_ota.h"
+#include "app_reboot.h"
+#include "app_scheduler.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
-#include <zephyr/sys/reboot.h>
 #include <ram_pwrdn.h>
 
 #include <zboss_api.h>
@@ -21,16 +23,15 @@
 #include <zigbee/zigbee_error_handler.h>
 #include <zb_nrf_platform.h>
 #include "nrf_802154.h"
-#include "zb_dimmable_light.h"
+#include "zb_schneggi_sensor.h"
 
 #include <zcl/zb_zcl_power_config.h>
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include <zcl/zb_zcl_basic_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
-#include "app_measurement_logic.h"
 #include "app_zcl_report.h"
 #include "co2_zcl_logic.h"
-#include "rejoin_logic.h"
+#include "app_network.h"
 #include "zigbee_signal_logic.h"
 
 #define APP_HAS_SCD4X DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
@@ -41,15 +42,10 @@ static const uint32_t SLEEP_INTERVAL_SECONDS = (uint32_t)CONFIG_SENSOR_UPDATE_IN
 static const uint32_t BATTERY_REPORT_INTERVAL_SECONDS = (uint32_t)CONFIG_BATTERY_UPDATE_INTERVAL_HOURS * 60U * 60U; // HA minimum = 3600s
 static const uint32_t BATTERY_SLEEP_CYCLES =
 	(BATTERY_REPORT_INTERVAL_SECONDS + SLEEP_INTERVAL_SECONDS - 1U) / SLEEP_INTERVAL_SECONDS;
-#define BATTERY_VOLTAGE_REPORT_THRESHOLD_MV 100
-#define BATTERY_PERCENT_REPORT_THRESHOLD 1
 #endif
 static const uint32_t SENSOR_REFRESH_INTERVAL_SECONDS = 24U * 60U * 60U;
 static const uint32_t SENSOR_REFRESH_CYCLES =
 	(SENSOR_REFRESH_INTERVAL_SECONDS + SLEEP_INTERVAL_SECONDS - 1U) / SLEEP_INTERVAL_SECONDS;
-
-#define TEMP_REPORT_THRESHOLD_CENTI_C 10
-#define HUMIDITY_REPORT_THRESHOLD_CENTI_PERCENT 100
 
 #if defined(CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS)
 #define APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS ((uint32_t)CONFIG_ZIGBEE_KEEPALIVE_TIMEOUT_MS)
@@ -77,9 +73,9 @@ BUILD_ASSERT(APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS >= APP_ZIGBEE_LONG_POLL_INTERVAL_MS
 
 // ZigBee
 #define SCHNEGGI_ENDPOINT 0x01
-#define BULB_INIT_BASIC_MANUF_NAME "FuZZi"
-#define BULB_INIT_BASIC_MODEL_ID "Schneggi Sensor"
-#define BULB_INIT_BASIC_DATE_CODE "20240810"
+#define SCHNEGGI_BASIC_MANUF_NAME "FuZZi"
+#define SCHNEGGI_BASIC_MODEL_ID "Schneggi Sensor"
+#define SCHNEGGI_BASIC_DATE_CODE "20240810"
 
 typedef struct
 {
@@ -197,32 +193,29 @@ ZB_ZCL_DECLARE_POWER_CONFIG_BATTERY_ATTRIB_LIST_EXT(
 #endif
 
 #if APP_HAS_SCD4X
-ZB_DECLARE_DIMMABLE_LIGHT_CLUSTER_LIST(
-	dimmable_light_clusters,
-	basic_attr_list,
-	identify_attr_list,
-	temp_measurement_attr_list,
-	humidity_measurement_attr_list,
-	concentration_measurement_attr_list);
-
-ZB_DECLARE_DIMMABLE_LIGHT_EP_WITH_CO2(
-	schneggi_ep,
-	SCHNEGGI_ENDPOINT,
-	dimmable_light_clusters);
+#define SCHNEGGI_EXTRA_CLUSTER CONCENTRATION_MEASUREMENT
+#define SCHNEGGI_EXTRA_ATTR_LIST concentration_measurement_attr_list
+#define SCHNEGGI_EXTRA_REPORT_COUNT ZB_ZCL_CONCENTRATION_MEASUREMENT_REPORT_ATTR_COUNT
+#define SCHNEGGI_DEVICE_VERSION 2
 #else
-ZB_DECLARE_DIMMABLE_LIGHT_CLUSTER_LIST_NO_CO2(
-	dimmable_light_clusters,
+#define SCHNEGGI_EXTRA_CLUSTER POWER_CONFIG
+#define SCHNEGGI_EXTRA_ATTR_LIST power_config_attr_list
+#define SCHNEGGI_EXTRA_REPORT_COUNT ZB_ZCL_POWER_CONFIG_REPORT_ATTR_COUNT
+#define SCHNEGGI_DEVICE_VERSION 1
+#endif
+
+ZB_DECLARE_SCHNEGGI_CLUSTER_LIST(
+	schneggi_clusters,
 	basic_attr_list,
 	identify_attr_list,
 	temp_measurement_attr_list,
 	humidity_measurement_attr_list,
-	power_config_attr_list);
+	SCHNEGGI_EXTRA_CLUSTER,
+	SCHNEGGI_EXTRA_ATTR_LIST);
 
-ZB_DECLARE_DIMMABLE_LIGHT_EP_NO_CO2(
-	schneggi_ep,
-	SCHNEGGI_ENDPOINT,
-	dimmable_light_clusters);
-#endif
+ZB_DECLARE_SCHNEGGI_EP(
+	schneggi_ep, SCHNEGGI_ENDPOINT, schneggi_clusters,
+	SCHNEGGI_EXTRA_CLUSTER, SCHNEGGI_EXTRA_REPORT_COUNT, SCHNEGGI_DEVICE_VERSION);
 
 extern zb_af_endpoint_desc_t zigbee_fota_client_ep;
 BUILD_ASSERT(SCHNEGGI_ENDPOINT != CONFIG_ZIGBEE_FOTA_ENDPOINT);
@@ -233,16 +226,7 @@ ZBOSS_DECLARE_DEVICE_CTX_2_EP(
 
 // ADC
 #if !APP_HAS_SCD4X
-#if !DT_NODE_EXISTS(DT_PATH(zephyr_user)) || \
-	!DT_NODE_HAS_PROP(DT_PATH(zephyr_user), io_channels)
-#error "No suitable devicetree overlay specified"
-#endif
-
-#define DT_SPEC_AND_COMMA(node_id, prop, idx) \
-	ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
-
-static const struct adc_dt_spec adc_channels[] = {
-	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels, DT_SPEC_AND_COMMA)};
+static const struct adc_dt_spec battery_adc = ADC_DT_SPEC_GET(DT_PATH(vbatt));
 #endif
 
 static const struct device *shtc3;
@@ -254,10 +238,10 @@ static const struct gpio_dt_spec led_spec = GPIO_DT_SPEC_GET(LED_NODE, gpios);
 static const struct gpio_dt_spec battery_monitor_enable = GPIO_DT_SPEC_GET(DT_PATH(vbatt), power_gpios);
 
 #if !APP_HAS_SCD4X
-static uint16_t buf;
-static struct adc_sequence sequence = {
-	.buffer = &buf,
-	.buffer_size = sizeof(buf)};
+static struct app_battery battery = {
+	.adc = &battery_adc,
+	.enable = &battery_monitor_enable,
+};
 
 static bool battery_monitor_ready;
 #endif
@@ -270,25 +254,7 @@ static const struct device *scd;
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
-struct report_state
-{
-	bool temp_valid;
-	int16_t temp_value;
-	uint32_t temp_cycle;
-	bool humidity_valid;
-	int16_t humidity_value;
-	uint32_t humidity_cycle;
-#if !APP_HAS_SCD4X
-	bool battery_voltage_valid;
-	int32_t battery_voltage_mv;
-	uint32_t battery_voltage_cycle;
-	bool battery_percentage_valid;
-	uint8_t battery_percentage;
-	uint32_t battery_percentage_cycle;
-#endif
-};
-
-static struct report_state report_state;
+static struct app_environment environment;
 
 static void init_shtc3_device(void)
 {
@@ -343,21 +309,16 @@ static void init_battery_monitor(void)
 		return;
 	}
 #if !APP_HAS_SCD4X
-	/* Configure channels individually prior to sampling. */
-	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++)
+	if (!adc_is_ready_dt(&battery_adc))
 	{
-		if (!adc_is_ready_dt(&adc_channels[i]))
-		{
-			LOG_ERR("ADC controller device %s not ready", adc_channels[i].dev->name);
-			return;
-		}
-
-		err = adc_channel_setup_dt(&adc_channels[i]);
-		if (err < 0)
-		{
-			LOG_ERR("Could not setup channel #%d (%d)", i, err);
-			return;
-		}
+		LOG_ERR("Battery ADC not ready");
+		return;
+	}
+	err = adc_channel_setup_dt(&battery_adc);
+	if (err < 0)
+	{
+		LOG_ERR("Could not set up battery ADC (%d)", err);
+		return;
 	}
 
 	battery_monitor_ready = true;
@@ -380,16 +341,16 @@ static void init_clusters_attr(void)
 
 	ZB_ZCL_SET_STRING_VAL(
 		dev_ctx.basic_attr.mf_name,
-		BULB_INIT_BASIC_MANUF_NAME,
-		ZB_ZCL_STRING_CONST_SIZE(BULB_INIT_BASIC_MANUF_NAME));
+		SCHNEGGI_BASIC_MANUF_NAME,
+		ZB_ZCL_STRING_CONST_SIZE(SCHNEGGI_BASIC_MANUF_NAME));
 
 	ZB_ZCL_SET_STRING_VAL(
 		dev_ctx.basic_attr.model_id,
-		BULB_INIT_BASIC_MODEL_ID,
-		ZB_ZCL_STRING_CONST_SIZE(BULB_INIT_BASIC_MODEL_ID));
+		SCHNEGGI_BASIC_MODEL_ID,
+		ZB_ZCL_STRING_CONST_SIZE(SCHNEGGI_BASIC_MODEL_ID));
 
-	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.date_code, BULB_INIT_BASIC_DATE_CODE,
-						  ZB_ZCL_STRING_CONST_SIZE(BULB_INIT_BASIC_DATE_CODE));
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.date_code, SCHNEGGI_BASIC_DATE_CODE,
+						  ZB_ZCL_STRING_CONST_SIZE(SCHNEGGI_BASIC_DATE_CODE));
 
 	/* Identify cluster attributes data */
 	dev_ctx.identify_attr.identify_time =
@@ -427,149 +388,48 @@ static void init_clusters_attr(void)
 		co2_zcl_single_from_float(co2_zcl_fraction_from_ppm(100.0));
 }
 
-/**@brief Function to toggle the identify LED
- *
- * @param  bufid  Unused parameter, required by ZBOSS scheduler API.
- */
-static void toggle_identify_led(zb_bufid_t bufid)
+static bool identifying;
+
+static void stop_identifying(void)
 {
-	gpio_pin_toggle_dt(&led_spec);
-	ZB_SCHEDULE_APP_ALARM(toggle_identify_led, bufid, ZB_MILLISECONDS_TO_BEACON_INTERVAL(100));
+	identifying = false;
+	gpio_pin_set_dt(&led_spec, 0);
 }
 
-/**@brief Function to handle identify notification events on the first endpoint.
- *
- * @param  bufid  Unused parameter, required by ZBOSS scheduler API.
- */
-static void identify_cb(zb_bufid_t bufid)
+static void toggle_identify_led(zb_uint8_t unused)
 {
-	zb_ret_t zb_err_code;
+	ZVUNUSED(unused);
+	/* A callback already dequeued when Identify stops must not restart blinking. */
+	if (!identifying)
+	{
+		return;
+	}
+	gpio_pin_toggle_dt(&led_spec);
+	if (app_alarm_replace(toggle_identify_led, 0, 100) != RET_OK)
+	{
+		LOG_WRN("Unable to schedule Identify blink");
+		stop_identifying();
+	}
+}
 
-	if (bufid)
+static void identify_cb(zb_uint8_t active)
+{
+	if (active)
 	{
 		LOG_INF("Start identify");
+		identifying = true;
 		gpio_pin_set_dt(&led_spec, 1);
-		/* Schedule a self-scheduling function that will toggle the LED. */
-		ZB_SCHEDULE_APP_CALLBACK(toggle_identify_led, bufid);
+		if (app_alarm_replace(toggle_identify_led, 0, 100) != RET_OK)
+		{
+			LOG_WRN("Unable to start Identify blink");
+			stop_identifying();
+		}
 	}
 	else
 	{
 		LOG_INF("Stop identify");
-		/* Cancel the toggling function alarm and restore current Zigbee LED state. */
-		zb_err_code = ZB_SCHEDULE_APP_ALARM_CANCEL(toggle_identify_led, ZB_ALARM_ANY_PARAM);
-		gpio_pin_set_dt(&led_spec, 0);
-		ZVUNUSED(zb_err_code);
-	}
-}
-
-static void update_shtc3_values(uint32_t current_cycle)
-{
-	int err = 0;
-
-	if (shtc3 == NULL || !device_is_ready(shtc3))
-	{
-		LOG_WRN("SHTC3 device not ready, keeping previous values");
-	}
-	else
-	{
-		err = app_shtc3_sample_fetch(shtc3, &shtc3_bus);
-		if (err)
-		{
-			LOG_WRN("Failed to fetch sample from SHTC3: %d, keeping previous values", err);
-		}
-		else
-		{
-			struct sensor_value temp;
-			struct sensor_value hum;
-			int16_t temperature_attribute = 0;
-			int16_t humidity_attribute = 0;
-			double measured_temperature = 0.0;
-			double measured_humidity = 0.0;
-			int st = sensor_channel_get(shtc3, SENSOR_CHAN_AMBIENT_TEMP, &temp);
-
-			if (st == 0)
-			{
-				measured_temperature = sensor_value_to_double(&temp);
-				temperature_attribute = (int16_t)(measured_temperature * 100);
-				if (app_zcl_custom_s16_reporting_active(
-						 SCHNEGGI_ENDPOINT,
-						 ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT,
-						 ZB_ZCL_ATTR_TEMP_MEASUREMENT_VALUE_ID) ||
-					app_report_due_s16(report_state.temp_valid,
-						 report_state.temp_value,
-						 report_state.temp_cycle,
-						 temperature_attribute,
-						 TEMP_REPORT_THRESHOLD_CENTI_C,
-						 current_cycle,
-						 SENSOR_REFRESH_CYCLES))
-				{
-					LOG_INF("Temperature: %.2f °C", measured_temperature);
-
-					zb_zcl_status_t status =
-						app_zcl_report_temperature(SCHNEGGI_ENDPOINT, temperature_attribute);
-					if (status != ZB_ZCL_STATUS_SUCCESS)
-					{
-						LOG_ERR("Failed to set temperature attribute: %d", status);
-					}
-					else
-					{
-						report_state.temp_valid = true;
-						report_state.temp_value = temperature_attribute;
-						report_state.temp_cycle = current_cycle;
-					}
-				}
-				else
-				{
-					LOG_DBG("Temperature delta below threshold, skipping report");
-				}
-			}
-			else
-			{
-				LOG_WRN("Failed to read temperature sensor: %d, keeping previous value", st);
-			}
-
-			st = sensor_channel_get(shtc3, SENSOR_CHAN_HUMIDITY, &hum);
-			if (st == 0)
-			{
-				measured_humidity = sensor_value_to_double(&hum);
-				humidity_attribute = (int16_t)(measured_humidity * 100);
-				if (app_zcl_custom_s16_reporting_active(
-						 SCHNEGGI_ENDPOINT,
-						 ZB_ZCL_CLUSTER_ID_REL_HUMIDITY_MEASUREMENT,
-						 ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_ID) ||
-					app_report_due_s16(report_state.humidity_valid,
-						 report_state.humidity_value,
-						 report_state.humidity_cycle,
-						 humidity_attribute,
-						 HUMIDITY_REPORT_THRESHOLD_CENTI_PERCENT,
-						 current_cycle,
-						 SENSOR_REFRESH_CYCLES))
-				{
-					LOG_INF("Humidity: %.2f RH", measured_humidity);
-
-					zb_zcl_status_t status =
-						app_zcl_report_humidity(SCHNEGGI_ENDPOINT, humidity_attribute);
-					if (status != ZB_ZCL_STATUS_SUCCESS)
-					{
-						LOG_ERR("Failed to set humidity attribute: %d", status);
-					}
-					else
-					{
-						report_state.humidity_valid = true;
-						report_state.humidity_value = humidity_attribute;
-						report_state.humidity_cycle = current_cycle;
-					}
-				}
-				else
-				{
-					LOG_DBG("Humidity delta below threshold, skipping report");
-				}
-			}
-			else
-			{
-				LOG_WRN("Failed to read humidity sensor: %d, keeping previous value", st);
-			}
-		}
+		stop_identifying();
+		ZB_SCHEDULE_APP_ALARM_CANCEL(toggle_identify_led, ZB_ALARM_ALL_CB);
 	}
 }
 
@@ -630,184 +490,22 @@ static void update_scd4x_value(void)
 
 static void update_sensor_values(uint32_t current_cycle)
 {
-	update_shtc3_values(current_cycle);
+	if (shtc3 != NULL && device_is_ready(shtc3))
+	{
+		app_environment_update(&environment, shtc3, &shtc3_bus,
+				       SCHNEGGI_ENDPOINT, current_cycle, SENSOR_REFRESH_CYCLES);
+	}
+	else
+	{
+		LOG_WRN("SHTC3 device not ready, keeping previous values");
+	}
 
 #if APP_HAS_SCD4X
 	update_scd4x_value();
 #endif
 }
 
-#if !APP_HAS_SCD4X
-static bool update_battery_voltage_report(int32_t battery_voltage_mv, uint32_t current_cycle)
-{
-	uint8_t battery_attribute = app_battery_voltage_zcl_attribute(battery_voltage_mv);
-
-	if (!app_report_due_s32(report_state.battery_voltage_valid,
-				report_state.battery_voltage_mv,
-				report_state.battery_voltage_cycle,
-				battery_voltage_mv,
-				BATTERY_VOLTAGE_REPORT_THRESHOLD_MV,
-				current_cycle,
-				BATTERY_SLEEP_CYCLES))
-	{
-		LOG_DBG("Battery voltage delta below threshold, skipping report");
-		return true;
-	}
-
-	LOG_INF("Battery Voltage %d mV-> ZigBee Attribute Value: 0x%x",
-		battery_voltage_mv,
-		battery_attribute);
-	zb_zcl_status_t status_battery_voltage =
-		app_zcl_report_battery_voltage(SCHNEGGI_ENDPOINT, battery_attribute);
-	if (status_battery_voltage)
-	{
-		LOG_ERR("Failed to set ZCL attribute: %d", status_battery_voltage);
-		return false;
-	}
-
-	report_state.battery_voltage_valid = true;
-	report_state.battery_voltage_mv = battery_voltage_mv;
-	report_state.battery_voltage_cycle = current_cycle;
-
-	return true;
-}
-
-static bool update_battery_percentage_report(uint8_t battery_percentage, uint32_t current_cycle)
-{
-	uint8_t battery_percentage_attribute = app_battery_percentage_zcl_attribute(battery_percentage);
-
-	if (!app_report_due_u8(report_state.battery_percentage_valid,
-			       report_state.battery_percentage,
-			       report_state.battery_percentage_cycle,
-			       battery_percentage,
-			       BATTERY_PERCENT_REPORT_THRESHOLD,
-			       current_cycle,
-			       BATTERY_SLEEP_CYCLES))
-	{
-		LOG_DBG("Battery percentage delta below threshold, skipping report");
-		return true;
-	}
-
-	LOG_INF("Battery Percentage: %d -> ZigBee Attribute Value: 0x%x",
-		battery_percentage,
-		battery_percentage_attribute);
-	zb_zcl_status_t status_battery_percentage =
-		app_zcl_report_battery_percentage(SCHNEGGI_ENDPOINT,
-						  battery_percentage_attribute);
-	if (status_battery_percentage)
-	{
-		LOG_ERR("Failed to set ZCL attribute: %d", status_battery_percentage);
-		return false;
-	}
-
-	report_state.battery_percentage_valid = true;
-	report_state.battery_percentage = battery_percentage;
-	report_state.battery_percentage_cycle = current_cycle;
-
-	return true;
-}
-
-static void update_battery(uint32_t current_cycle)
-{
-	int err;
-	if (!battery_monitor_ready)
-	{
-		return;
-	}
-
-	// Enable battery measurement
-	err = gpio_pin_set_dt(&battery_monitor_enable, 1);
-	if (err < 0)
-	{
-		LOG_ERR("Could not enable battery monitor (%d)", err);
-		return;
-	}
-	k_sleep(K_MSEC(1));
-
-	for (size_t i = 0U; i < ARRAY_SIZE(adc_channels); i++)
-	{
-		int32_t val_mv;
-
-		LOG_DBG("%s, channel %d: ",
-				adc_channels[i].dev->name,
-				adc_channels[i].channel_id);
-
-		err = adc_sequence_init_dt(&adc_channels[i], &sequence);
-		if (err < 0)
-		{
-			LOG_ERR("Could not initialize ADC sequence (%d)", err);
-			continue;
-		}
-
-		err = adc_read(adc_channels[i].dev, &sequence);
-		if (err < 0)
-		{
-			LOG_ERR("Could not read (%d)", err);
-			continue;
-		}
-
-		/*
-		 * If using differential mode, the 16 bit value
-		 * in the ADC sample buffer should be a signed 2's
-		 * complement value.
-		 */
-		if (adc_channels[i].channel_cfg.differential)
-		{
-			val_mv = (int32_t)((int16_t)buf);
-		}
-		else
-		{
-			val_mv = (int32_t)buf;
-		}
-
-		err = adc_raw_to_millivolts_dt(&adc_channels[i],
-									   &val_mv);
-		/* conversion to mV may not be supported, skip if not */
-		if (err < 0)
-		{
-			LOG_ERR("(value in mV not available)");
-		}
-		else
-		{
-
-			int32_t battery_voltage_mv = app_battery_millivolts_from_adc(val_mv);
-
-			if (i == 0)
-			{
-				if (battery_voltage_mv < 0)
-				{
-					LOG_DBG("Not reporting negative voltage");
-					goto cleanup;
-				}
-
-				if (!update_battery_voltage_report(battery_voltage_mv, current_cycle))
-				{
-					goto cleanup;
-				}
-
-				uint8_t battery_percentage = app_battery_percentage_from_mv((uint32_t)battery_voltage_mv);
-				if (!update_battery_percentage_report(battery_percentage, current_cycle))
-				{
-					goto cleanup;
-				}
-			}
-		}
-	}
-cleanup:
-	// Disable battery measurement
-	err = gpio_pin_set_dt(&battery_monitor_enable, 0);
-	if (err < 0)
-	{
-		LOG_ERR("Could not disable battery monitor (%d)", err);
-	}
-}
-#endif
-
-#if !APP_HAS_SCD4X
-static uint32_t battery_cycles = 0;
-#endif
 static uint32_t measurement_cycles = 0;
-static struct app_rejoin_state rejoin_state = {0};
 
 static void sensor_loop(zb_bufid_t bufid)
 {
@@ -817,30 +515,22 @@ static void sensor_loop(zb_bufid_t bufid)
 #if APP_HAS_SCD4X
 	LOG_DBG("-- Loop %" PRIu32 " (%s)--", current_cycle, ZB_JOINED() ? "Connected" : "Disconnected");
 #else
-	LOG_DBG("-- Loop %" PRIu32 " / %" PRIu32 " (%s)--", battery_cycles, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
+	LOG_DBG("-- Loop %" PRIu32 " / %" PRIu32 " (%s)--", current_cycle, BATTERY_SLEEP_CYCLES, ZB_JOINED() ? "Connected" : "Disconnected");
 #endif
 
-	ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
-	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-										 ZB_MILLISECONDS_TO_BEACON_INTERVAL(
-											 SLEEP_INTERVAL_SECONDS * 1000));
-	if (ret != RET_OK)
+	if (app_alarm_replace(sensor_loop, 0, SLEEP_INTERVAL_SECONDS * 1000U) != RET_OK)
 	{
-		LOG_ERR("Unable to schedule the sensor loop");
+		LOG_ERR("Unable to schedule sensor measurements; restarting");
+		app_reboot();
+		return;
 	}
 
 	update_sensor_values(current_cycle);
 
 #if !APP_HAS_SCD4X
-	/* Update battery on startup and every BATTERY_SLEEP_CYCLES thereafter. */
-	if (battery_cycles == 0 || battery_cycles == BATTERY_SLEEP_CYCLES)
+	if (battery_monitor_ready)
 	{
-		update_battery(current_cycle);
-		battery_cycles = 1;
-	}
-	else
-	{
-		battery_cycles++;
+		app_battery_update(&battery, SCHNEGGI_ENDPOINT, current_cycle, BATTERY_SLEEP_CYCLES);
 	}
 #endif
 
@@ -851,277 +541,62 @@ static void sensor_loop(zb_bufid_t bufid)
 #endif
 }
 
-static struct app_zigbee_state app_state;
-
-static void start_network_steering(zb_uint8_t param);
-static void execute_rejoin_outcome(const struct app_rejoin_outcome *outcome)
-{
-	if (outcome->log_started)
-	{
-		LOG_INF("Started network rejoin procedure");
-	}
-
-	if (outcome->log_stopped)
-	{
-		LOG_INF("Network rejoin procedure stopped");
-	}
-
-	if (outcome->schedule_retry)
-	{
-		if (ZB_SCHEDULE_APP_ALARM(start_network_steering,
-								  ZB_FALSE,
-								  ZB_MILLISECONDS_TO_BEACON_INTERVAL(outcome->retry_delay_s * 1000U)) != RET_OK)
-		{
-			LOG_ERR("Unable to schedule network rejoin retry");
-			return;
-		}
-
-		app_rejoin_mark_retry_pending(&rejoin_state);
-		LOG_INF("Scheduled network rejoin retry in %" PRIu32 " s", outcome->retry_delay_s);
-	}
-
-	if (outcome->stop_deferred)
-	{
-		LOG_WRN("Unable to cancel pending rejoin attempt immediately");
-	}
-}
-
-static void start_network_steering(zb_uint8_t param)
-{
-	struct app_rejoin_outcome outcome;
-
-	ZVUNUSED(param);
-
-	if (!app_rejoin_begin_retry(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome))
-	{
-		execute_rejoin_outcome(&outcome);
-		return;
-	}
-	LOG_INF("Starting network steering retry");
-
-	if (bdb_start_top_level_commissioning(ZB_BDB_NETWORK_STEERING) != ZB_TRUE)
-	{
-		LOG_WRN("Failed to start network steering, scheduling next retry");
-		app_rejoin_process(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome);
-		execute_rejoin_outcome(&outcome);
-	}
-}
-
-static void start_network_rejoin(void)
-{
-	struct app_rejoin_outcome outcome;
-
-	app_rejoin_start(&rejoin_state, app_state.stack_initialised, ZB_JOINED(), &outcome);
-	execute_rejoin_outcome(&outcome);
-}
-
-static void stop_network_rejoin(void)
-{
-	zb_ret_t ret = ZB_SCHEDULE_APP_ALARM_CANCEL(start_network_steering, ZB_ALARM_ANY_PARAM);
-	struct app_rejoin_outcome outcome;
-
-	app_rejoin_stop(&rejoin_state, ret == RET_OK || ret == RET_NOT_FOUND, &outcome);
-	execute_rejoin_outcome(&outcome);
-}
-
-static void execute_signal_actions(const struct app_zigbee_actions *actions)
-{
-	zb_bool_t comm_status = ZB_TRUE;
-
-	if (actions->commissioning_mode == APP_COMMISSIONING_INITIALIZATION)
-	{
-		comm_status = bdb_start_top_level_commissioning(ZB_BDB_INITIALIZATION);
-	}
-
-	if (actions->commissioning_mode != APP_COMMISSIONING_NONE &&
-		comm_status != ZB_TRUE)
-	{
-		LOG_WRN("Commissioning error");
-	}
-
-	if (actions->schedule_sensor_loop_cancel)
-	{
-		ZB_SCHEDULE_APP_ALARM_CANCEL(sensor_loop, ZB_ALARM_ANY_PARAM);
-	}
-
-	if (actions->schedule_sensor_loop)
-	{
-		ZB_SCHEDULE_APP_ALARM(sensor_loop, ZB_ALARM_ANY_PARAM,
-							  ZB_MILLISECONDS_TO_BEACON_INTERVAL(actions->schedule_sensor_loop_delay_ms));
-	}
-
-	if (actions->set_long_poll_interval)
-	{
-		/* long poll uses milliseconds; keepalive uses beacon intervals */
-		app_ota_set_long_poll(actions->long_poll_interval_ms);
-	}
-
-	if (actions->stop_rejoin)
-	{
-		stop_network_rejoin();
-	}
-
-	if (actions->start_rejoin)
-	{
-		start_network_rejoin();
-	}
-
-	if (actions->request_sleep && !APP_HAS_SCD4X)
-	{
-		zb_sleep_now();
-	}
-}
-
 void zboss_signal_handler(zb_uint8_t param)
 {
-	zb_zdo_app_signal_hdr_t *p_sg_p = NULL;
-	zb_zdo_app_signal_type_t sig = zb_get_app_signal(param, &p_sg_p);
+	zb_zdo_app_signal_hdr_t *header = NULL;
+	zb_zdo_app_signal_type_t signal = zb_get_app_signal(param, &header);
 	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(param);
-	struct app_zigbee_actions actions;
-	bool status_ok = (status == RET_OK);
+	enum app_zigbee_signal app_signal = APP_ZIGBEE_SIGNAL_OTHER;
+	bool parent_link_failure = false;
 
-	switch (sig)
+	switch (signal)
 	{
 	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
-		LOG_DBG("> SKIP_STARTUP");
-		LOG_DBG("ZigBee stack initialized. Start commissioning");
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_SKIP_STARTUP,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		LOG_DBG("Zigbee stack startup: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_SKIP_STARTUP;
 		break;
-
 	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
-		LOG_DBG("> DEVICE_FIRST_START");
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		LOG_DBG("First device startup: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START;
 		break;
-
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
-		LOG_DBG("> DEVICE_REBOOT");
-		if (status_ok)
-		{
-			LOG_INF("Joined network successfully on reboot.");
-		}
-		else
-		{
-			LOG_WRN("Reboot rejoin failed. Status: %d", status);
-		}
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_DEVICE_REBOOT,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		LOG_INF("Reboot rejoin result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_REBOOT;
 		break;
-
 	case ZB_BDB_SIGNAL_STEERING:
-		LOG_DBG("> STEERING");
-
-		if (status_ok)
-		{
-			LOG_INF("Joined network successfully!");
-		}
-		else
-		{
-			LOG_WRN("Failed to join network. Status: %d", status);
-		}
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_STEERING,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		LOG_INF("Network steering result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_STEERING;
 		break;
-
 	case ZB_ZDO_SIGNAL_LEAVE:
-		LOG_DBG("> LEAVE");
-
-		if (status_ok)
-		{
-			zb_zdo_signal_leave_params_t *p_leave_params = ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_leave_params_t);
-			LOG_INF("Network left. Leave type: %d", p_leave_params->leave_type);
-			app_zigbee_handle_signal(&app_state,
-									 APP_ZIGBEE_SIGNAL_LEAVE,
-									 status_ok,
-									 p_leave_params->leave_type == ZB_NWK_LEAVE_TYPE_REJOIN,
-									 false,
-									 &actions);
-			execute_signal_actions(&actions);
-		}
-		else
-		{
-			LOG_ERR("Unable to leave network. Status: %d", status);
-			app_zigbee_handle_signal(&app_state,
-									 APP_ZIGBEE_SIGNAL_LEAVE,
-									 status_ok,
-									 false,
-									 false,
-									 &actions);
-			execute_signal_actions(&actions);
-		}
+		LOG_INF("Network leave result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_LEAVE;
 		break;
-
 	case ZB_COMMON_SIGNAL_CAN_SLEEP:
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_CAN_SLEEP,
-								 status_ok,
-								 false,
-								 false,
-								 &actions);
-		execute_signal_actions(&actions);
+		app_signal = APP_ZIGBEE_SIGNAL_CAN_SLEEP;
 		break;
-
 	case ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
-		LOG_DBG("> PRODUCTION_CONFIG_READY");
-		if (status != RET_OK)
-		{
-			LOG_DBG("Production config is not present or invalid");
-		}
-		else
-		{
-			LOG_DBG("Production config ready");
-		}
+		LOG_DBG("Production config result: %d", status);
 		break;
-
 	case ZB_NLME_STATUS_INDICATION:
 	{
-		LOG_DBG("> STATUS_INDICATION");
-		LOG_DBG("NLME Status indication. Status: %d", status);
-
-		zb_zdo_signal_nlme_status_indication_params_t *nlme_status_ind =
-			ZB_ZDO_SIGNAL_GET_PARAMS(p_sg_p, zb_zdo_signal_nlme_status_indication_params_t);
-		bool parent_link_failure =
-			(nlme_status_ind->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE);
+		zb_zdo_signal_nlme_status_indication_params_t *indication =
+			ZB_ZDO_SIGNAL_GET_PARAMS(header, zb_zdo_signal_nlme_status_indication_params_t);
+		parent_link_failure =
+			indication->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE;
 		if (parent_link_failure)
 		{
 			LOG_WRN("Parent link failure");
 		}
-		app_zigbee_handle_signal(&app_state,
-								 APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION,
-								 status_ok,
-								 false,
-								 parent_link_failure,
-								 &actions);
-		execute_signal_actions(&actions);
+		app_signal = APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION;
+		break;
+	}
+	default:
+		LOG_INF("Unhandled signal %d. Status: %d", signal, status);
 		break;
 	}
 
-	default:
-		/* Unhandled signal. For more information see: zb_zdo_app_signal_type_e and zb_ret_e */
-		LOG_INF("Unhandled signal %d. Status: %d", sig, status);
-		break;
-	}
+	app_network_handle_signal(app_signal, status == RET_OK, parent_link_failure,
+				  sensor_loop, !APP_HAS_SCD4X);
 
 	/* Process leave/rejoin actions before OTA may reboot to reset its session. */
 	app_ota_signal(param);
@@ -1136,7 +611,7 @@ int main(void)
 	LOG_INF("Schneggi sensor starting...");
 	if (app_ota_init() != 0) {
 		LOG_ERR("OTA/watchdog initialization failed");
-		sys_reboot(SYS_REBOOT_COLD);
+		app_reboot();
 		return -1;
 	}
 
@@ -1166,7 +641,6 @@ int main(void)
 		power_down_unused_ram();
 	}
 
-	// nrf_802154_tx_power_set(8); //8 dBm (max)
 	LOG_DBG("802.15.4 transmit power: %d dBm", nrf_802154_tx_power_get());
 	LOG_DBG("ZB sleep threshold: %d ms", zb_get_sleep_threshold());
 
@@ -1200,7 +674,7 @@ int main(void)
 	app_ota_startup_ready(device_is_ready(shtc3) &&
 		(!APP_HAS_SCD4X || (scd != NULL && device_is_ready(scd)))
 #if !APP_HAS_SCD4X
-		&& battery_monitor_ready && device_is_ready(adc_channels[0].dev)
+		&& battery_monitor_ready && adc_is_ready_dt(&battery_adc)
 #endif
 	);
 	zigbee_enable();

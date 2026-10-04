@@ -2,10 +2,10 @@
 
 This KiCad project is intended to be exported for JLCPCB with KiCad 9.
 
-Use the KiCad 9 AppImage entrypoint:
+Use KiCad 9 from your `PATH`:
 
 ```sh
-/tmp/kicad_appimage_run/AppRun kicad-cli version
+kicad-cli version
 ```
 
 The expected version for the checked-in production files is KiCad CLI `9.0.9`.
@@ -34,19 +34,24 @@ From `hardware/flash_adapter`:
 make jlcpcb
 ```
 
-The `Makefile` runs the full sequence below.
+The `Makefile` stops before export if DRC errors or ERC violations are found.
+It runs the sequence below. For an AppImage installation, override the command:
 
 ```sh
-/tmp/kicad_appimage_run/AppRun kicad-cli pcb drc --severity-error --schematic-parity --output flash_adapter-drc.rpt flash_adapter.kicad_pcb
-/tmp/kicad_appimage_run/AppRun kicad-cli sch erc --severity-all --output flash_adapter-erc.rpt flash_adapter.kicad_sch
+make jlcpcb KICAD_CLI='/path/to/AppRun kicad-cli'
+```
+
+```sh
+kicad-cli pcb drc --severity-error --schematic-parity --exit-code-violations --output flash_adapter-drc.rpt flash_adapter.kicad_pcb
+kicad-cli sch erc --severity-all --exit-code-violations --output flash_adapter-erc.rpt flash_adapter.kicad_sch
 
 rm -f jlcpcb/gerber/*
-/tmp/kicad_appimage_run/AppRun kicad-cli pcb export gerbers --output jlcpcb/gerber --layers F.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cuts --use-drill-file-origin flash_adapter.kicad_pcb
-/tmp/kicad_appimage_run/AppRun kicad-cli pcb export drill --output jlcpcb/gerber --format excellon --drill-origin plot --excellon-units mm --excellon-zeros-format decimal --excellon-oval-format alternate flash_adapter.kicad_pcb
-/tmp/kicad_appimage_run/AppRun kicad-cli sch export bom --fields Value,Reference,Footprint,'LCSC Part' --labels Comment,Designator,Footprint,'JLCPCB Part #（optional）' --output jlcpcb/production_files/BOM-flash_adapter.csv flash_adapter.kicad_sch
+kicad-cli pcb export gerbers --output jlcpcb/gerber --layers F.Cu,B.Cu,F.Paste,B.Paste,F.Silkscreen,B.Silkscreen,F.Mask,B.Mask,Edge.Cuts --use-drill-file-origin flash_adapter.kicad_pcb
+kicad-cli pcb export drill --output jlcpcb/gerber --format excellon --drill-origin plot --excellon-units mm --excellon-zeros-format decimal --excellon-oval-format alternate flash_adapter.kicad_pcb
+kicad-cli sch export bom --fields Value,Reference,Footprint,'LCSC Part' --labels Comment,Designator,Footprint,'JLCPCB Part #（optional）' --output jlcpcb/production_files/BOM-flash_adapter.csv flash_adapter.kicad_sch
 sed -i 's/"//g' jlcpcb/production_files/BOM-flash_adapter.csv
 
-/tmp/kicad_appimage_run/AppRun kicad-cli pcb export pos --side front --format csv --units mm --smd-only --use-drill-file-origin --output /tmp/CPL-flash_adapter.raw.csv flash_adapter.kicad_pcb
+kicad-cli pcb export pos --side front --format csv --units mm --smd-only --use-drill-file-origin --output /tmp/CPL-flash_adapter.raw.csv flash_adapter.kicad_pcb
 awk -F, 'BEGIN { print "Designator,Mid X,Mid Y,Layer,Rotation" } NR > 1 { gsub(/"/, ""); layer = ($7 == "top" ? "Top" : ($7 == "bottom" ? "Bottom" : $7)); printf "%s,%.4fmm,%.4fmm,%s,%.0f\n", $1, $4, $5, layer, $6 }' /tmp/CPL-flash_adapter.raw.csv > jlcpcb/production_files/CPL-flash_adapter.csv
 
 rm -f jlcpcb/production_files/GERBER-flash_adapter.zip

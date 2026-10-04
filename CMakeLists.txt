@@ -18,8 +18,12 @@ endif()
 project("Schneggi Sensor")
 
 target_sources(app PRIVATE
+	src/app_environment.c
 	src/app_shtc3.c
+	src/app_network.c
 	src/app_ota.c
+	src/app_reboot.c
+	src/app_scheduler.c
 	src/app_measurement_logic.c
 	src/app_zcl_report.c
 	src/co2_zcl_logic.c
@@ -28,6 +32,8 @@ target_sources(app PRIVATE
 	src/zigbee_signal_logic.c
 	src/zcl/zb_zcl_concentration_measurement.c
 )
+
+target_sources_ifdef(CONFIG_ADC app PRIVATE src/app_battery.c)
 
 target_include_directories(app PRIVATE include)
 # NORDIC SDK APP END

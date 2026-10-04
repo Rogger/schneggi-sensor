@@ -1,4 +1,4 @@
-KICAD_CLI ?= /tmp/kicad_appimage_run/AppRun kicad-cli
+KICAD_CLI ?= kicad-cli
 
 PROJECT := flash_adapter
 PCB := $(PROJECT).kicad_pcb
@@ -35,8 +35,8 @@ gerbers bom cpl: check
 zip: gerbers
 
 check:
-	$(KICAD_CLI) pcb drc --severity-error --schematic-parity --output $(PROJECT)-drc.rpt $(PCB)
-	$(KICAD_CLI) sch erc --severity-all --output $(PROJECT)-erc.rpt $(SCH)
+	$(KICAD_CLI) pcb drc --severity-error --schematic-parity --exit-code-violations --output $(PROJECT)-drc.rpt $(PCB)
+	$(KICAD_CLI) sch erc --severity-all --exit-code-violations --output $(PROJECT)-erc.rpt $(SCH)
 
 gerbers:
 	mkdir -p $(GERBER_DIR)

@@ -1,10 +1,10 @@
 #include "app_ota.h"
+#include "app_reboot.h"
+#include "app_scheduler.h"
 #include <zigbee/zigbee_fota.h>
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/sys/reboot.h>
-#include <ram_pwrdn.h>
 
 LOG_MODULE_REGISTER(app_ota, LOG_LEVEL_INF);
 
@@ -24,14 +24,6 @@ static void manufacturer_set(zb_ret_t status)
   }
 }
 
-static void reboot(void)
-{
-  if (IS_ENABLED(CONFIG_RAM_POWER_DOWN_LIBRARY)) {
-    power_up_unused_ram();
-  }
-  sys_reboot(SYS_REBOOT_COLD);
-}
-
 static void download_timeout(zb_uint8_t unused);
 static void response_timeout(zb_uint8_t unused);
 
@@ -39,8 +31,8 @@ static void end_download(void)
 {
   downloading = false;
   waiting_for_install = false;
-  ZB_SCHEDULE_APP_ALARM_CANCEL(download_timeout, ZB_ALARM_ANY_PARAM);
-  ZB_SCHEDULE_APP_ALARM_CANCEL(response_timeout, ZB_ALARM_ANY_PARAM);
+  ZB_SCHEDULE_APP_ALARM_CANCEL(download_timeout, ZB_ALARM_ALL_CB);
+  ZB_SCHEDULE_APP_ALARM_CANCEL(response_timeout, ZB_ALARM_ALL_CB);
   if (sleepy_device) {
     zb_zdo_pim_set_long_poll_interval(normal_poll_ms);
   }
@@ -59,7 +51,7 @@ static void response_timeout(zb_uint8_t unused)
   LOG_WRN("OTA server response missing; rebooting to reset the OTA session");
   zigbee_fota_abort();
   end_download();
-  reboot();
+  app_reboot();
 }
 
 static void download_timeout(zb_uint8_t unused)
@@ -71,7 +63,7 @@ static void download_timeout(zb_uint8_t unused)
   LOG_WRN("OTA transfer stalled; rebooting to reset the OTA session");
   zigbee_fota_abort();
   end_download();
-  reboot();
+  app_reboot();
 }
 
 static void download_activity(void)
@@ -81,9 +73,7 @@ static void download_activity(void)
   if (sleepy_device) {
     zb_zdo_pim_set_long_poll_interval(100);
   }
-  ZB_SCHEDULE_APP_ALARM_CANCEL(download_timeout, ZB_ALARM_ANY_PARAM);
-  if (ZB_SCHEDULE_APP_ALARM(download_timeout, 0,
-                           ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000)) != RET_OK) {
+  if (app_alarm_replace(download_timeout, 0, 300000) != RET_OK) {
     /* A transfer must have a bounded exit path on both power profiles. */
     download_timeout(0);
   }
@@ -110,7 +100,7 @@ static void ota_event(const struct zigbee_fota_evt *evt)
     break;
   case ZIGBEE_FOTA_EVT_FINISHED:
     end_download();
-    reboot();
+    app_reboot();
     break;
   case ZIGBEE_FOTA_EVT_ERROR:
     end_download();
@@ -157,8 +147,7 @@ static void zcl_callback(zb_bufid_t bufid)
       if (sleepy_device) {
         zb_zdo_pim_start_turbo_poll_continuous(30000);
       }
-      if (ZB_SCHEDULE_APP_ALARM(response_timeout, 0,
-                               ZB_MILLISECONDS_TO_BEACON_INTERVAL(300000)) != RET_OK) {
+      if (app_alarm_replace(response_timeout, 0, 300000) != RET_OK) {
         response_timeout(0);
       }
     }
@@ -171,17 +160,24 @@ static void zcl_callback(zb_bufid_t bufid)
 static void health_tick(zb_uint8_t unused)
 {
   ARG_UNUSED(unused);
+  /* Reserve the next health tick before confirming a trial image. A full
+   * scheduler must not leave a confirmed image without watchdog service.
+   */
+  if (app_alarm_replace(health_tick, 0, 30000) != RET_OK) {
+    LOG_ERR("Unable to schedule watchdog service; restarting");
+    app_reboot();
+    return;
+  }
   /* Reaching this alarm proves the stack scheduler runs. Do not require a
    * coordinator to be online to confirm a locally healthy image. */
   if (!boot_is_img_confirmed()) {
     if (!peripherals_ok || boot_write_img_confirmed() != 0) {
       LOG_ERR("Trial firmware failed startup checks; reverting");
-      reboot();
+      app_reboot();
       return;
     }
   }
   wdt_feed(watchdog, watchdog_channel);
-  ZB_SCHEDULE_APP_ALARM(health_tick, 0, ZB_MILLISECONDS_TO_BEACON_INTERVAL(30000));
 }
 
 void app_ota_startup_ready(bool ready)
@@ -196,7 +192,11 @@ void app_ota_signal(zb_bufid_t bufid)
   if (signal == ZB_ZDO_SIGNAL_SKIP_STARTUP && ZB_GET_APP_SIGNAL_STATUS(bufid) == RET_OK) {
     zb_set_node_descriptor_manufacturer_code_req(CONFIG_ZIGBEE_FOTA_MANUFACTURER_ID,
                                                  manufacturer_set);
-    ZB_SCHEDULE_APP_ALARM(health_tick, 0, ZB_MILLISECONDS_TO_BEACON_INTERVAL(10000));
+    if (app_alarm_replace(health_tick, 0, 10000) != RET_OK) {
+      LOG_ERR("Unable to start watchdog service; restarting");
+      app_reboot();
+      return;
+    }
   }
   if (signal == ZB_ZDO_SIGNAL_LEAVE && ZB_GET_APP_SIGNAL_STATUS(bufid) == RET_OK &&
       (downloading || waiting_for_install)) {
@@ -204,7 +204,7 @@ void app_ota_signal(zb_bufid_t bufid)
     end_download();
     /* The Nordic abort resets only DFU parsing, not ZBOSS protocol state or
      * a scheduled FINISH callback. Reset both after main's leave handling. */
-    reboot();
+    app_reboot();
   }
 }
 
