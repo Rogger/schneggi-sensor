@@ -22,6 +22,8 @@ target_sources(app PRIVATE
 	src/app_shtc3.c
 	src/app_network.c
 	src/app_ota.c
+	src/app_ota_storage.c
+	src/app_ota_transfer.c
 	src/app_reboot.c
 	src/app_scheduler.c
 	src/app_measurement_logic.c

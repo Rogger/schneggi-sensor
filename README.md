@@ -113,6 +113,9 @@ Firmware builds now include signed MCUboot/Zigbee OTA support. Supply
 `OTA_SIGNING_KEY=/absolute/private/schneggi.pem` to the build commands below.
 For development only, use `OTA_ALLOW_TEST_KEY=ON` to opt into the public SDK key.
 See [OTA setup, signing, ZHA configuration, and recovery](docs/ota.md).
+Interrupted transfers can resume from the last completed 4 KiB flash page after
+retrying Install in Home Assistant, including after a sensor power cycle. The
+running firmware must already include resume support.
 
 ```bash
 cd <project-dir>
@@ -163,6 +166,8 @@ CO2 attribute validation, Zigbee signal handling, OTA behavior for both power pr
 and rejoin retry/cancellation behavior. They also exercise sensor fetch/read failures,
 failed attribute writes, custom reporting and resets, exact fixed-point conversion,
 battery ADC/GPIO error cleanup and retry timing, and OTA package validation/index updates.
+OTA resume tests simulate resets throughout a download, torn flash writes and
+checkpoint commits, corrupted saved data, and maximum-size images.
 Runtime tests cover failed startup, alarm exhaustion, cancellation failures,
 duplicate reconnect signals, and long scheduling intervals. The Python suite also
 checks that PCB rule-check failures prevent manufacturing exports under parallel make.

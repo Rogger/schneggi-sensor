@@ -6,6 +6,7 @@
 #include <stddef.h>
 #define CONFIG_ZIGBEE_LONG_POLL_INTERVAL_MS 120000
 #define CONFIG_ZIGBEE_FOTA_MANUFACTURER_ID 0xFFF1
+#define CONFIG_ZIGBEE_FOTA_IMAGE_TYPE 0x8102
 #define CONFIG_ZIGBEE_FOTA_ENDPOINT 5
 #define ZB_ZCL_OTA_UPGRADE_IMAGE_STATUS_NORMAL 0
 #define ZB_ZCL_OTA_UPGRADE_IMAGE_STATUS_DOWNLOADED 2
@@ -35,6 +36,7 @@
 #define WDT_FLAG_RESET_SOC 1
 #define WDT_OPT_PAUSE_HALTED_BY_DBG 2
 typedef uint8_t zb_uint8_t;
+typedef uint32_t zb_uint32_t;
 typedef uint8_t zb_bufid_t;
 typedef int zb_ret_t;
 typedef int zb_zdo_app_signal_type_t;
@@ -51,9 +53,16 @@ enum {
  ZB_ZCL_OTA_UPGRADE_STATUS_BUSY,
 };
 typedef struct {
+ zb_uint8_t upgrade_status;
+ union {
+   struct { uint16_t manufacturer, image_type; uint32_t file_version, file_length; } start;
+   struct { uint32_t file_offset; uint8_t data_length; uint8_t *block_data; } receive;
+ } upgrade;
+} zb_zcl_ota_upgrade_value_param_t;
+typedef struct {
  int device_cb_id;
  int status;
- struct { struct { zb_uint8_t upgrade_status; } ota_value_param; } cb_param;
+ struct { zb_zcl_ota_upgrade_value_param_t ota_value_param; } cb_param;
 } zb_zcl_device_callback_param_t;
 extern zb_zcl_device_callback_param_t test_cb;
 #define ZB_BUF_GET_PARAM(buf, type) ((type *)&test_cb)
@@ -64,6 +73,17 @@ int alarm_schedule(alarm_cb cb, zb_uint8_t param, unsigned int delay);
 int alarm_cancel(alarm_cb cb, zb_uint8_t param);
 #define ZB_SCHEDULE_APP_ALARM alarm_schedule
 #define ZB_SCHEDULE_APP_ALARM_CANCEL alarm_cancel
+#define ZB_SCHEDULE_APP_CALLBACK callback_schedule
+int callback_schedule(alarm_cb cb, zb_uint8_t param);
+#define ZB_ZCL_CLUSTER_ID_OTA_UPGRADE 0x19
+#define ZB_ZCL_CLUSTER_CLIENT_ROLE 0
+#define ZB_ZCL_ATTR_OTA_UPGRADE_FILE_OFFSET_ID 2
+#define ZB_FALSE 0
+void set_offset(unsigned int ep, unsigned int cluster, unsigned int role,
+                unsigned int attr, uint8_t *data, bool check);
+#define ZB_ZCL_SET_ATTRIBUTE set_offset
+#define BOOT_UPGRADE_TEST 0
+int boot_request_upgrade(int mode);
 extern alarm_cb registered_zcl;
 #define ZB_ZCL_REGISTER_DEVICE_CB(cb) (registered_zcl = cb)
 int signal_status(zb_bufid_t buf);
