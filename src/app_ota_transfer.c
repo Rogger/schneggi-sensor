@@ -141,21 +141,32 @@ static int load_progress(void)
   return 0;
 }
 
-int ota_transfer_start(const struct ota_storage *storage, const struct ota_image_id *id)
+int ota_transfer_init(const struct ota_storage *storage)
 {
-  active = false;
-  if (!storage || !storage->read || !storage->write || !storage->erase || !id ||
-      id->file_size < 94 || id->file_size > OTA_IMAGE_CAPACITY + OTA_PREFIX_MAX) {
+  active = checked = false;
+  store = NULL;
+  if (!storage || !storage->read || !storage->write || !storage->erase) {
     return -EINVAL;
   }
   store = storage;
+  return 0;
+}
+
+int ota_transfer_start(const struct ota_storage *storage, const struct ota_image_id *id)
+{
+  int err = ota_transfer_init(storage);
+  if (err) { return err; }
+  if (!id ||
+      id->file_size < 94 || id->file_size > OTA_IMAGE_CAPACITY + OTA_PREFIX_MAX) {
+    return -EINVAL;
+  }
   memset(&header, 0, sizeof(header));
   header.magic = JOURNAL_MAGIC;
   header.id = *id;
   cursor = image_bytes = page_fill = data_crc = saved_bytes = saved_crc = 0;
   journal_next = sizeof(header);
   prefix_ready = checked = resuming = false;
-  int err = load_progress();
+  err = load_progress();
   if (!err) { active = true; }
   return err;
 }
@@ -268,5 +279,5 @@ int ota_transfer_check(void)
 int ota_transfer_discard(void)
 {
   active = checked = false;
-  return store ? store->erase(true, 0, OTA_PAGE_SIZE) : 0;
+  return store ? store->erase(true, 0, OTA_PAGE_SIZE) : -ENODEV;
 }

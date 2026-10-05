@@ -288,6 +288,8 @@ int app_ota_init(void)
 {
   int err = app_ota_storage_init();
   if (err) { return err; }
+  err = ota_transfer_init(&app_ota_storage);
+  if (err) { return err; }
   if (!device_is_ready(watchdog)) {
     return -ENODEV;
   }

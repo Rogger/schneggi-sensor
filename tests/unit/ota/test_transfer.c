@@ -211,6 +211,26 @@ int main(int argc, char **argv)
   assert(restart() == prefix_size);
   finish();
 
+  /* Cold-boot initialization must preserve the saved journal, while a leave
+   * before any new START must erase it. Failed erases are reported for retry. */
+  fixture(12001, false);
+  assert(ota_transfer_start(&storage, &id) == 0);
+  assert(feed_until(prefix_size + 9000, 64) == 0);
+  uint8_t saved_journal[OTA_PAGE_SIZE];
+  memcpy(saved_journal, journal, sizeof(journal));
+  assert(ota_transfer_init(&storage) == 0);
+  assert(!memcmp(saved_journal, journal, sizeof(journal)));
+  assert(ota_transfer_check() == -EINVAL);
+  fail_operation = operations + 1;
+  assert(ota_transfer_discard() == -EIO);
+  fail_operation = 0;
+  assert(ota_transfer_discard() == 0);
+  for (uint32_t i = 0; i < sizeof(journal); i++) { assert(journal[i] == 0xff); }
+  assert(restart() == prefix_size);
+  finish();
+  assert(ota_transfer_init(NULL) == -EINVAL);
+  assert(ota_transfer_discard() == -ENODEV);
+
   /* Reject incompatible/truncated/oversized/noncanonical packages and gaps. */
   for (unsigned int mutation = 0; mutation < 8; mutation++) {
     fixture(12001, false);

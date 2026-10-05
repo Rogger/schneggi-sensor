@@ -24,6 +24,9 @@ struct ota_storage {
   int (*erase)(bool journal, uint32_t offset, size_t size);
 };
 
+/* Bind storage at startup without changing persisted progress, so a network
+ * leave can discard an earlier checkpoint before a new download starts. */
+int ota_transfer_init(const struct ota_storage *storage);
 int ota_transfer_start(const struct ota_storage *storage, const struct ota_image_id *id);
 int ota_transfer_receive(uint32_t offset, const uint8_t *data, size_t size);
 uint32_t ota_transfer_offset(void);

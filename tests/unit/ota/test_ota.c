@@ -19,10 +19,13 @@ static zb_uint8_t ota_status;
 static unsigned int discards, installs, received_offset;
 static int transfer_result;
 static int install_result;
+static unsigned int transfer_initializations;
 static alarm_cb pending_install;
 
 int app_ota_storage_init(void) { return 0; }
 const struct ota_storage app_ota_storage = {0};
+int ota_transfer_init(const struct ota_storage *storage)
+{ assert(storage == &app_ota_storage); transfer_initializations++; return 0; }
 int ota_transfer_start(const struct ota_storage *storage, const struct ota_image_id *id)
 { assert(storage == &app_ota_storage); (void)id; return transfer_result; }
 int ota_transfer_receive(uint32_t offset, const uint8_t *data, size_t size)
@@ -120,6 +123,7 @@ int main(void)
   assert(app_ota_init() == -EINVAL);
   watchdog_result = 0;
   assert(app_ota_init() == 0);
+  assert(transfer_initializations == 3);
 
   /* A trial image must not even enter the library's DFU processing path. */
   confirmed = false;
