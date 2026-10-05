@@ -154,10 +154,31 @@ Upgrade End response is missing. It checks the ZBOSS state, so an acknowledged
 indefinite deferral or scheduled installation does not trigger recovery.
 The battery client uses a bounded 30-second turbo-poll window to receive the
 Upgrade End response, then returns to normal polling while waiting. The USB
-variant keeps receiving continuously. Interrupted downloads
-restart; persistent byte-offset resume is not implemented. Successful leave events
-abort active transfers or pending installations and reboot after normal leave
-handling to clear SDK protocol state; failed leave attempts preserve the session.
+variant keeps receiving continuously. Firmware with OTA resume retains completed
+4 KiB flash pages across server aborts, timeout recovery, and device power loss.
+Retry **Install** in Home Assistant after the sensor reconnects. Each retry first
+downloads and compares the OTA and DFU headers, then jumps to the last committed
+page. The incomplete page is downloaded again. Before the first page has been
+committed, a retry starts from zero. Home Assistant may initially display 0% until
+the device advances its requested offset.
+
+The checkpoint journal uses the existing reserved page at `0xf6000`; neither
+MCUboot slots nor Zigbee storage move. Each committed page has a CRC-protected
+record written after its data, with a separate commit marker. Incomplete journal
+records are ignored. Corrupt stored data, an invalid journal header, a changed
+package header, or a different image identity cause a fresh download. Invalid
+incoming images discard their checkpoint.
+Firmware images must remain immutable for a given manufacturer, image type,
+version and size; publish changed contents with a higher version. MCUboot still
+verifies the candidate signature before booting it, and trial firmware cannot
+write the secondary slot until confirmation. The receiver accepts the same
+canonical, single-application DFU packages as `scripts/package_ota.py`.
+
+The firmware currently running on the sensor must include this resume code;
+installing it from older firmware uses that older client's restart behavior.
+Successful leave events discard retained progress. If a transfer or installation
+is active, the device also aborts and reboots after normal leave handling to clear
+SDK protocol state; failed leave attempts preserve the session.
 Installation briefly interrupts sensor reporting and then rejoins using
 persistent network settings.
 
@@ -209,9 +230,11 @@ Before deploying to all sensors, test on one device of each hardware variant:
    confirmation, reconnection, and temperature/humidity reporting. Check CO2
    readings on the USB variant and battery reporting on the non-CO2 variant.
 3. Interrupt the coordinator during download. Verify timeout recovery and a
-   successful retry, with normal polling restored on the battery variant.
+   successful retry from the committed offset, with normal polling restored on
+   the battery variant. The sensor log reports `Resuming OTA at byte ...`.
 4. Interrupt device power during transfer and during the swap. Verify a working
-   old or new image and intact pairing data after restart.
+   old or new image and intact pairing data after restart. Retry the interrupted
+   download and verify a nonzero requested offset after the headers are received.
 5. Offer a wrong-profile image, an older image, a corrupted image, and an image
    signed with a different key. Verify rejection and recovery.
 6. Use a deliberately failing trial image on the test device to verify rollback

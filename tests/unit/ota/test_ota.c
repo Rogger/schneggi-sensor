@@ -16,6 +16,28 @@ static unsigned int library_calls, turbo_ms, turbo_calls;
 static alarm_cb pending_response;
 static unsigned int response_delay;
 static zb_uint8_t ota_status;
+static unsigned int discards, installs, received_offset;
+static int transfer_result;
+static int install_result;
+static alarm_cb pending_install;
+
+int app_ota_storage_init(void) { return 0; }
+const struct ota_storage app_ota_storage = {0};
+int ota_transfer_start(const struct ota_storage *storage, const struct ota_image_id *id)
+{ assert(storage == &app_ota_storage); (void)id; return transfer_result; }
+int ota_transfer_receive(uint32_t offset, const uint8_t *data, size_t size)
+{ (void)offset; (void)data; (void)size; return transfer_result; }
+uint32_t ota_transfer_offset(void) { return received_offset; }
+int ota_transfer_check(void) { return transfer_result; }
+int ota_transfer_discard(void) { discards++; return 0; }
+int boot_request_upgrade(int mode)
+{ assert(mode == BOOT_UPGRADE_TEST); installs++; return install_result; }
+int callback_schedule(alarm_cb cb, zb_uint8_t param)
+{ assert(param == 0); pending_install = cb; return schedule_result; }
+void set_offset(unsigned int ep, unsigned int cluster, unsigned int role,
+                unsigned int attr, uint8_t *data, bool check)
+{ assert(ep == 5 && cluster == 0x19 && role == 0 && attr == 2 && !check);
+  assert(*(uint32_t *)data == received_offset); }
 
 #if defined(OTA_USB_PROFILE)
 #define POLL_IS(ms) (poll_calls == 0)
@@ -77,7 +99,12 @@ static void command(int status, int result)
 {
   test_cb.device_cb_id = ZB_ZCL_OTA_UPGRADE_VALUE_CB_ID;
   test_cb.cb_param.ota_value_param.upgrade_status = status;
+  if (status == ZB_ZCL_OTA_UPGRADE_STATUS_START) {
+    test_cb.cb_param.ota_value_param.upgrade.start.manufacturer = CONFIG_ZIGBEE_FOTA_MANUFACTURER_ID;
+    test_cb.cb_param.ota_value_param.upgrade.start.image_type = CONFIG_ZIGBEE_FOTA_IMAGE_TYPE;
+  }
   library_result = result;
+  transfer_result = result == ZB_ZCL_OTA_UPGRADE_STATUS_OK ? 0 : -EIO;
   registered_zcl(1);
 }
 
@@ -170,6 +197,7 @@ int main(void)
   download_timeout(0); /* A stale alarm must not expire a completed image. */
   assert(reboots == 5 && aborts == 2);
   command(ZB_ZCL_OTA_UPGRADE_STATUS_FINISH, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
+  assert(installs == 1 && pending_install == install_ready);
   ota_event(&event);
   assert(reboots == 6 && !waiting_for_install && !pending_download);
 
@@ -269,5 +297,40 @@ int main(void)
   app_ota_signal(1);
   assert(reboots == before_reboots + 2 && confirms == before_confirms);
   assert(restores == reboots);
+
+  /* Resume advances ZBOSS's requested offset without calling the SDK writer. */
+  confirmed = true;
+  schedule_result = RET_OK;
+  command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
+  unsigned int before_calls = library_calls, before_discards = discards;
+  received_offset = 8280;
+  command(ZB_ZCL_OTA_UPGRADE_STATUS_RECEIVE, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
+  assert(library_calls == before_calls && discards == before_discards);
+  pending_download(0);
+  assert(discards == before_discards); /* Timeout preserves the checkpoint. */
+  command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
+  command(ZB_ZCL_OTA_UPGRADE_STATUS_ABORT, ZB_ZCL_OTA_UPGRADE_STATUS_ABORT);
+  assert(discards == before_discards); /* Server abort does too. */
+  current_signal = ZB_ZDO_SIGNAL_LEAVE;
+  current_status = -EIO;
+  app_ota_signal(1);
+  assert(discards == before_discards);
+  current_status = RET_OK;
+  app_ota_signal(1);
+  assert(discards == before_discards + 1); /* Idle leave clears retained progress. */
+  command(ZB_ZCL_OTA_UPGRADE_STATUS_RECEIVE, ZB_ZCL_OTA_UPGRADE_STATUS_ERROR);
+  assert(discards == before_discards + 2);
+
+  /* Never reboot or queue installation if marking the image fails. */
+  before_reboots = reboots;
+  pending_install = NULL;
+  install_result = -EIO;
+  command(ZB_ZCL_OTA_UPGRADE_STATUS_FINISH, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
+  assert(test_cb.cb_param.ota_value_param.upgrade_status == ZB_ZCL_OTA_UPGRADE_STATUS_ERROR);
+  assert(!pending_install && reboots == before_reboots);
+  install_result = 0;
+  schedule_result = -ENOMEM;
+  command(ZB_ZCL_OTA_UPGRADE_STATUS_FINISH, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
+  assert(reboots == before_reboots + 1); /* A marked image still has a bounded reboot. */
   return 0;
 }
