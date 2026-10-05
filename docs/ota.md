@@ -154,7 +154,8 @@ Upgrade End response is missing. It checks the ZBOSS state, so an acknowledged
 indefinite deferral or scheduled installation does not trigger recovery.
 The battery client uses a bounded 30-second turbo-poll window to receive the
 Upgrade End response, then returns to normal polling while waiting. The USB
-variant keeps receiving continuously. Firmware with OTA resume retains completed
+variant keeps receiving continuously. CO2 firmware from 2.0.4 and non-CO2 firmware
+from 1.0.6 support OTA resume and retain completed
 4 KiB flash pages across server aborts, timeout recovery, and device power loss.
 Retry **Install** in Home Assistant after the sensor reconnects. Each retry first
 downloads and compares the OTA and DFU headers, then jumps to the last committed
