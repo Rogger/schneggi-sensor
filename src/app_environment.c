@@ -71,10 +71,17 @@ static void update_channel(struct app_environment_report *state,
 		LOG_WRN("%s attribute update failed (%u)", channel->name, status);
 		return;
 	}
-	LOG_INF("%s: %d hundredths", channel->name, value);
+	LOG_INF("%s endpoint %u: %d hundredths", channel->name, endpoint, value);
 	state->valid = true;
 	state->value = value;
 	state->cycle = cycle;
+}
+
+void app_environment_update_temperature(struct app_environment_report *state,
+					const struct device *sensor, uint8_t endpoint,
+					uint32_t cycle, uint32_t refresh_cycles)
+{
+	update_channel(state, &temperature, sensor, endpoint, cycle, refresh_cycles);
 }
 
 void app_environment_update(struct app_environment *state,
@@ -86,6 +93,6 @@ void app_environment_update(struct app_environment *state,
 		LOG_WRN("SHTC3 fetch failed (%d); keeping previous values", err);
 		return;
 	}
-	update_channel(&state->temperature, &temperature, sensor, endpoint, cycle, refresh_cycles);
+	app_environment_update_temperature(&state->temperature, sensor, endpoint, cycle, refresh_cycles);
 	update_channel(&state->humidity, &humidity, sensor, endpoint, cycle, refresh_cycles);
 }

@@ -47,4 +47,26 @@
 		(zb_af_simple_desc_1_1_t *)&simple_desc_##ep_name, \
 		ZB_SCHNEGGI_COMMON_REPORT_COUNT + extra_reports, reporting_info##ep_name, 0, NULL)
 
+/* A separate standard temperature endpoint lets ZHA discover a second reading
+ * without changing the existing ambient-temperature cluster on endpoint 1.
+ */
+#define ZB_DECLARE_SCHNEGGI_TEMPERATURE_CLUSTER_LIST(name, basic, identify, temperature) \
+	zb_zcl_cluster_desc_t name[] = { \
+		ZB_SCHNEGGI_SERVER_CLUSTER(BASIC, basic), \
+		ZB_SCHNEGGI_SERVER_CLUSTER(IDENTIFY, identify), \
+		ZB_SCHNEGGI_SERVER_CLUSTER(TEMP_MEASUREMENT, temperature), \
+	}
+
+#define ZB_DECLARE_SCHNEGGI_TEMPERATURE_EP(ep_name, ep_id, clusters) \
+	ZB_DECLARE_SIMPLE_DESC(3, 0); \
+	ZB_AF_SIMPLE_DESC_TYPE(3, 0) simple_desc_##ep_name = { \
+		ep_id, ZB_AF_HA_PROFILE_ID, ZB_HA_TEMPERATURE_SENSOR_DEVICE_ID, 1, 0, 3, 0, \
+		{ZB_ZCL_CLUSTER_ID_BASIC, ZB_ZCL_CLUSTER_ID_IDENTIFY, ZB_ZCL_CLUSTER_ID_TEMP_MEASUREMENT}, \
+	}; \
+	ZBOSS_DEVICE_DECLARE_REPORTING_CTX(reporting_info##ep_name, ZB_ZCL_TEMP_MEASUREMENT_REPORT_ATTR_COUNT); \
+	ZB_AF_DECLARE_ENDPOINT_DESC(ep_name, ep_id, ZB_AF_HA_PROFILE_ID, 0, NULL, \
+		ZB_ZCL_ARRAY_SIZE(clusters, zb_zcl_cluster_desc_t), clusters, \
+		(zb_af_simple_desc_1_1_t *)&simple_desc_##ep_name, \
+		ZB_ZCL_TEMP_MEASUREMENT_REPORT_ATTR_COUNT, reporting_info##ep_name, 0, NULL)
+
 #endif
