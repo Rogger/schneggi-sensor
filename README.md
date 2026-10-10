@@ -3,6 +3,10 @@ A Zigbee sensor integrated with Home Assistant for monitoring temperature, humid
 
 - High accuracy temperature and humidity measurements ([Sensirion SHTC3](https://www.sensirion.com/products/catalog/SHTC3/))
 - High accuracy CO2 measurement ([Sensirion SCD40](https://sensirion.com/products/catalog/SCD40)) - optional board
+  - CO2 firmware exposes two temperatures: SHTC3 ambient temperature on endpoint 1
+    and SCD40 temperature on endpoint 2. The SCD40 reading uses the same sample as
+    CO2 and can be affected by self-heating and enclosure conditions; use SHTC3
+    as the primary ambient reading. The existing SHTC3 humidity entity is unchanged.
 - Low power consumption and long battery life for the non-CO2 variant
   - Hardware: nRF52840 chip, low-current linear regulator, battery monitor with on/off capability 
   - Software: Zigbee sleepy end device for the non-CO2 variant
@@ -11,6 +15,15 @@ A Zigbee sensor integrated with Home Assistant for monitoring temperature, humid
 - The CO2 variant is USB-C powered. It advertises DC power, keeps its Zigbee receiver on while idle, and does not report a battery.
 - Small footprint (3,5cm x 3cm )
 - Tested with [Home Assistant](https://www.home-assistant.io/) and [SkyConnect](https://www.home-assistant.io/skyconnect/)
+
+After upgrading CO2 firmware to a build with the second temperature endpoint,
+Home Assistant ZHA must discover endpoint 2. Re-interview/reconfigure the device;
+if the endpoint list remains cached, remove and pair the device again. Both
+temperature entities use the standard Temperature Measurement cluster, so no
+custom quirk is required. You can rename them in HA to **Temperature SHTC3** and
+**Temperature SCD40**; endpoint 1 is SHTC3 and endpoint 2 is SCD40. The new reading
+uses the same sampling interval, 0.1 °C fallback change threshold, daily refresh,
+and standard Configure Reporting support as the existing temperature reading.
 
 ## Battery power management
 

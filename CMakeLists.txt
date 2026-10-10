@@ -36,6 +36,7 @@ target_sources(app PRIVATE
 )
 
 target_sources_ifdef(CONFIG_ADC app PRIVATE src/app_battery.c)
+target_sources_ifdef(CONFIG_SCD4X app PRIVATE src/app_scd4x.c)
 
 target_include_directories(app PRIVATE include)
 # NORDIC SDK APP END

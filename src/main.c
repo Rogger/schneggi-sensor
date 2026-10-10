@@ -8,6 +8,7 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/pm/device_runtime.h>
 #include "app_environment.h"
+#include "app_scd4x.h"
 #include "app_battery.h"
 #include "app_ota.h"
 #include "app_reboot.h"
@@ -73,6 +74,7 @@ BUILD_ASSERT(APP_ZIGBEE_KEEPALIVE_TIMEOUT_MS >= APP_ZIGBEE_LONG_POLL_INTERVAL_MS
 
 // ZigBee
 #define SCHNEGGI_ENDPOINT 0x01
+#define SCHNEGGI_SCD4X_TEMPERATURE_ENDPOINT 0x02
 #define SCHNEGGI_BASIC_MANUF_NAME "FuZZi"
 #define SCHNEGGI_BASIC_MODEL_ID "Schneggi Sensor"
 #define SCHNEGGI_BASIC_DATE_CODE "20240810"
@@ -121,6 +123,10 @@ typedef struct
 	zb_zcl_temp_measurement_attrs_t temp_measure_attrs;
 	zb_zcl_rel_humidity_measurement_attr_t humidity_measure_attrs;
 	zb_zcl_concentration_measurement_attrs_t concentration_measure_attrs;
+#if APP_HAS_SCD4X
+	zb_zcl_temp_measurement_attrs_t scd_temperature_attrs;
+	zb_zcl_identify_attrs_t scd_identify_attrs;
+#endif
 #if !APP_HAS_SCD4X
 	zb_zcl_power_config_attr_t power_config_attr;
 #endif
@@ -160,6 +166,17 @@ ZB_ZCL_DECLARE_REL_HUMIDITY_MEASUREMENT_ATTRIB_LIST(
 	&dev_ctx.humidity_measure_attrs.max_measure_value);
 
 #if APP_HAS_SCD4X
+ZB_ZCL_DECLARE_TEMP_MEASUREMENT_ATTRIB_LIST(
+	scd_temperature_attr_list,
+	&dev_ctx.scd_temperature_attrs.measure_value,
+	&dev_ctx.scd_temperature_attrs.min_measure_value,
+	&dev_ctx.scd_temperature_attrs.max_measure_value,
+	&dev_ctx.scd_temperature_attrs.tolerance);
+
+ZB_ZCL_DECLARE_IDENTIFY_ATTRIB_LIST(
+	scd_identify_attr_list,
+	&dev_ctx.scd_identify_attrs.identify_time);
+
 ZB_ZCL_DECLARE_CONCENTRATION_MEASUREMENT_ATTRIB_LIST(concentration_measurement_attr_list,
 													 &dev_ctx.concentration_measure_attrs.measure_value,
 													 &dev_ctx.concentration_measure_attrs.min_measure_value,
@@ -219,10 +236,21 @@ ZB_DECLARE_SCHNEGGI_EP(
 
 extern zb_af_endpoint_desc_t zigbee_fota_client_ep;
 BUILD_ASSERT(SCHNEGGI_ENDPOINT != CONFIG_ZIGBEE_FOTA_ENDPOINT);
+#if APP_HAS_SCD4X
+BUILD_ASSERT(SCHNEGGI_SCD4X_TEMPERATURE_ENDPOINT != SCHNEGGI_ENDPOINT);
+BUILD_ASSERT(SCHNEGGI_SCD4X_TEMPERATURE_ENDPOINT != CONFIG_ZIGBEE_FOTA_ENDPOINT);
+ZB_DECLARE_SCHNEGGI_TEMPERATURE_CLUSTER_LIST(
+	scd_temperature_clusters, basic_attr_list, scd_identify_attr_list, scd_temperature_attr_list);
+ZB_DECLARE_SCHNEGGI_TEMPERATURE_EP(
+	scd_temperature_ep, SCHNEGGI_SCD4X_TEMPERATURE_ENDPOINT, scd_temperature_clusters);
+ZBOSS_DECLARE_DEVICE_CTX_3_EP(
+	device_ctx, zigbee_fota_client_ep, schneggi_ep, scd_temperature_ep);
+#else
 ZBOSS_DECLARE_DEVICE_CTX_2_EP(
 	device_ctx,
 	zigbee_fota_client_ep,
 	schneggi_ep);
+#endif
 
 // ADC
 #if !APP_HAS_SCD4X
@@ -255,6 +283,9 @@ static const struct device *scd;
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
 static struct app_environment environment;
+#if APP_HAS_SCD4X
+static struct app_environment_report scd_temperature;
+#endif
 
 static void init_shtc3_device(void)
 {
@@ -370,6 +401,12 @@ static void init_clusters_attr(void)
 	dev_ctx.temp_measure_attrs.max_measure_value = ZB_ZCL_TEMP_MEASUREMENT_MAX_VALUE_DEFAULT_VALUE;
 	dev_ctx.temp_measure_attrs.tolerance = ZB_ZCL_ATTR_TEMP_MEASUREMENT_TOLERANCE_MAX_VALUE;
 
+#if APP_HAS_SCD4X
+	/* SCD4x temperature is independent of the SHTC3 ambient reading. */
+	dev_ctx.scd_temperature_attrs = dev_ctx.temp_measure_attrs;
+	dev_ctx.scd_identify_attrs.identify_time = ZB_ZCL_IDENTIFY_IDENTIFY_TIME_DEFAULT_VALUE;
+#endif
+
 	/* Humidity */
 	dev_ctx.humidity_measure_attrs.measure_value = ZB_ZCL_ATTR_REL_HUMIDITY_MEASUREMENT_VALUE_UNKNOWN;
 	dev_ctx.humidity_measure_attrs.min_measure_value =
@@ -414,8 +451,18 @@ static void toggle_identify_led(zb_uint8_t unused)
 
 static void identify_cb(zb_uint8_t active)
 {
+#if APP_HAS_SCD4X
+	/* Both endpoints identify the same physical device. Ending one endpoint's
+	 * timer must not stop the LED while the other is still identifying.
+	 */
+	active = dev_ctx.identify_attr.identify_time != 0 ||
+		 dev_ctx.scd_identify_attrs.identify_time != 0;
+#endif
 	if (active)
 	{
+		if (identifying) {
+			return;
+		}
 		LOG_INF("Start identify");
 		identifying = true;
 		gpio_pin_set_dt(&led_spec, 1);
@@ -433,61 +480,6 @@ static void identify_cb(zb_uint8_t active)
 	}
 }
 
-#if APP_HAS_SCD4X
-static void update_scd4x_value(void)
-{
-	int err;
-
-	if (scd == NULL || !device_is_ready(scd))
-	{
-		LOG_WRN("SCD4X device not ready, keeping previous value");
-	}
-	else
-	{
-		err = sensor_sample_fetch(scd);
-		if (err)
-		{
-			LOG_WRN("Failed to fetch sample from SCD4X: %d, keeping previous value", err);
-		}
-		else
-		{
-			double measured_co2 = 0.0;
-			float co2_attribute = 0.0f;
-			struct sensor_value sensor_value;
-
-			err = sensor_channel_get(scd, SENSOR_CHAN_CO2, &sensor_value);
-			if (err)
-			{
-				LOG_WRN("Failed to get SCD4X CO2: %d, keeping previous value", err);
-			}
-			else
-			{
-				measured_co2 = sensor_value_to_double(&sensor_value);
-				LOG_INF("CO2: %.2f ppm", measured_co2);
-
-				if (measured_co2 < 0.0)
-				{
-					LOG_WRN("CO2 reading below zero, clamping to zero");
-				}
-				else if (measured_co2 > CO2_ZCL_MAX_PPM)
-				{
-					LOG_WRN("CO2 reading above maximum supported value (%.0f ppm), clamping",
-							CO2_ZCL_MAX_PPM);
-				}
-				co2_attribute = co2_zcl_fraction_from_ppm(measured_co2);
-
-				zb_zcl_status_t status =
-					app_zcl_report_co2_fraction(SCHNEGGI_ENDPOINT, co2_attribute);
-				if (status != ZB_ZCL_STATUS_SUCCESS)
-				{
-					LOG_ERR("Failed to set CO2 attribute: %d", status);
-				}
-			}
-		}
-	}
-}
-#endif
-
 static void update_sensor_values(uint32_t current_cycle)
 {
 	if (shtc3 != NULL && device_is_ready(shtc3))
@@ -501,7 +493,13 @@ static void update_sensor_values(uint32_t current_cycle)
 	}
 
 #if APP_HAS_SCD4X
-	update_scd4x_value();
+	if (scd != NULL && device_is_ready(scd)) {
+		app_scd4x_update(&scd_temperature, scd, SCHNEGGI_ENDPOINT,
+				SCHNEGGI_SCD4X_TEMPERATURE_ENDPOINT,
+				current_cycle, SENSOR_REFRESH_CYCLES);
+	} else {
+		LOG_WRN("SCD4X device not ready, keeping previous values");
+	}
 #endif
 }
 
@@ -667,6 +665,9 @@ int main(void)
 	init_clusters_attr();
 
 	ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER(SCHNEGGI_ENDPOINT, identify_cb);
+#if APP_HAS_SCD4X
+	ZB_AF_SET_IDENTIFY_NOTIFICATION_HANDLER(SCHNEGGI_SCD4X_TEMPERATURE_ENDPOINT, identify_cb);
+#endif
 
 	// Erase persistent storage
 	zb_set_nvram_erase_at_start(ZB_FALSE);
