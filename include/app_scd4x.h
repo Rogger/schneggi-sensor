@@ -3,6 +3,9 @@
 
 #include "app_environment.h"
 
+/* Apply Schneggi's calibration settings through Zephyr's built-in driver. */
+int app_scd4x_init(const struct device *sensor);
+
 /* Fetch once and publish CO2 and temperature independently on their endpoints.
  * Called on the Zigbee thread with a ready SCD4x device.
  */

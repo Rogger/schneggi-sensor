@@ -8,6 +8,12 @@
 #define CONFIG_ZIGBEE_FOTA_MANUFACTURER_ID 0xFFF1
 #define CONFIG_ZIGBEE_FOTA_IMAGE_TYPE 0x8102
 #define CONFIG_ZIGBEE_FOTA_ENDPOINT 5
+#define SCHNEGGI_OTA_FILE_VERSION 0x02000006U
+typedef uint8_t zb_zcl_status_t;
+#define ZB_ZCL_STATUS_SUCCESS 0
+#define ZB_ZCL_ATTR_OTA_UPGRADE_FILE_VERSION_ID 3
+zb_zcl_status_t zb_zcl_set_attr_val(unsigned int, unsigned int, unsigned int,
+                                  unsigned int, uint8_t *, bool);
 #define ZB_ZCL_OTA_UPGRADE_IMAGE_STATUS_NORMAL 0
 #define ZB_ZCL_OTA_UPGRADE_IMAGE_STATUS_DOWNLOADED 2
 #define ZB_ZCL_OTA_UPGRADE_IMAGE_STATUS_WAITING_UPGRADE 3
