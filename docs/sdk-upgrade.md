@@ -15,8 +15,11 @@ Nordic toolchain; the Makefile reads `toolchains.json` to select it.
 - The SCD40 uses the SDK's native SCD4X driver. Startup applies the original
   574 m altitude compensation, zero temperature offset, and enabled automatic
   calibration. Override altitude with `CONFIG_APP_SCD4X_ALTITUDE`. Calibration
-  failure prevents trial-image confirmation. Startup waits five seconds for
-  the first normal conversion before the driver's sample cache is used.
+  or first-sample failure prevents trial-image confirmation. Startup polls
+  the sensor's data-ready status with CRC validation and a ten-second timeout,
+  then fetches the first measurement through the native driver before exposing
+  its cache. See SCD4x datasheet sections 3.6.2 and 3.9.2 in the
+  [Sensirion datasheet](https://sensirion.com/media/documents/48C4B7FB/67FE0194/CD_DS_SCD4x_Datasheet_D1.pdf).
 - MCUboot keeps ECDSA P-256 signing and swap using move. The fixed flash layout
   in `pm_static.yml` is retained, including the OTA checkpoint page and Zigbee
   storage. Partition Manager remains explicitly enabled; it is deprecated in

@@ -7,12 +7,14 @@
 #include "app_zcl_report.h"
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/sensor/scd4x.h>
+#include <zephyr/sys/crc.h>
 #include <zcl/zb_zcl_reporting.h>
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
 
 static const struct device scd, sht;
 static const struct i2c_dt_spec bus = { .bus = &sht, .addr = 0x70 };
+static const struct i2c_dt_spec scd_bus = { .bus = &scd, .addr = 0x62 };
 static struct sensor_value scd_sample[3], sht_sample[2];
 static int fetch_status, read_status[3];
 static unsigned int fetches, reads[3], temp_writes[3], co2_writes;
@@ -22,12 +24,46 @@ static zb_zcl_status_t co2_status, temp_status;
 static zb_zcl_reporting_info_t reporting[3];
 static unsigned int setting_calls, setting_failure;
 static unsigned int warmups;
+static int64_t uptime_ms;
 
 int k_sleep(int duration)
 {
-	assert(duration == 5000 && setting_calls == 3 && setting_failure == 0);
-	warmups++;
+	assert((duration == 1 || duration == 100) && setting_calls == 3 && setting_failure == 0);
+	uptime_ms += duration;
+	if (duration == 100) {
+		warmups++;
+	}
 	return 0;
+}
+
+int64_t k_uptime_get(void)
+{
+	return uptime_ms;
+}
+
+int i2c_write_dt(const struct i2c_dt_spec *spec, const uint8_t *data, size_t size)
+{
+	assert(spec == &scd_bus && size == 2 && data[0] == 0xe4 && data[1] == 0xb8);
+	assert(setting_calls == 3 && setting_failure == 0);
+	return 0;
+}
+
+int i2c_read_dt(const struct i2c_dt_spec *spec, uint8_t *data, size_t size)
+{
+	assert(spec == &scd_bus && size == 3 && warmups <= 1);
+	/* Upper status bits are set even when the low 11 readiness bits are zero. */
+	data[0] = 0x80;
+	data[1] = warmups ? 1 : 0;
+	data[2] = warmups ? 0x93 : 0xa2;
+	return 0;
+}
+
+uint8_t crc8(const uint8_t *src, size_t len, uint8_t polynomial,
+	     uint8_t initial_value, bool reversed)
+{
+	assert(len == 2 && polynomial == 0x31 && initial_value == 0xff && !reversed);
+	assert(src[0] == 0x80 && src[1] <= 1);
+	return src[1] ? 0x93 : 0xa2;
 }
 
 int sensor_attr_set(const struct device *sensor, enum sensor_channel channel,
@@ -48,11 +84,13 @@ static void test_calibration_setup(void)
 {
 	setting_calls = setting_failure = 0;
 	warmups = 0;
-	assert(app_scd4x_init(&scd) == 0 && setting_calls == 3 && warmups == 1);
+	uptime_ms = 0;
+	assert(app_scd4x_init(&scd, &scd_bus) == 0 && setting_calls == 3 && warmups == 1);
+	assert(fetches == 1);
 	for (setting_failure = 1; setting_failure <= 3; setting_failure++) {
 		setting_calls = 0;
 		warmups = 0;
-		assert(app_scd4x_init(&scd) == -EIO && setting_calls == setting_failure);
+		assert(app_scd4x_init(&scd, &scd_bus) == -EIO && setting_calls == setting_failure);
 		assert(warmups == 0);
 	}
 }
