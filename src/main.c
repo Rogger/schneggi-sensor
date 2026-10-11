@@ -276,6 +276,8 @@ static bool battery_monitor_ready;
 
 #if APP_HAS_SCD4X
 static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd40);
+static const struct i2c_dt_spec scd_bus =
+	I2C_DT_SPEC_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(sensirion_scd40));
 static bool scd_ready;
 #endif
 
@@ -315,10 +317,10 @@ static void init_scd4x_device(void)
 	}
 	else
 	{
-		int err = app_scd4x_init(scd);
+		int err = app_scd4x_init(scd, &scd_bus);
 		scd_ready = err == 0;
 		if (err) {
-			LOG_ERR("SCD40 calibration setup failed (%d)", err);
+			LOG_ERR("SCD40 startup failed (%d)", err);
 		} else {
 			LOG_DBG("Found device %s.", scd->name);
 		}

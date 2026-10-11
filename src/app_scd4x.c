@@ -2,14 +2,56 @@
 #include "app_zcl_report.h"
 #include "co2_zcl_logic.h"
 
+#include <errno.h>
+#include <zephyr/drivers/i2c.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/sensor/scd4x.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/crc.h>
 
 LOG_MODULE_REGISTER(app_scd4x, LOG_LEVEL_INF);
 
-int app_scd4x_init(const struct device *sensor)
+static int wait_for_first_sample(const struct device *sensor,
+				 const struct i2c_dt_spec *bus)
+{
+	/* The native driver returns success with its unchanged cache when data
+	 * is not ready. Query readiness explicitly before the first fetch.
+	 * SCD4x datasheet sections 3.6.2 and 3.9.2: readiness reads do not consume
+	 * the measurement, and no other code reads this sensor during startup.
+	 */
+	static const uint8_t command[] = {0xe4, 0xb8};
+	const int64_t deadline = k_uptime_get() + 10000;
+
+	while (k_uptime_get() < deadline) {
+		uint8_t response[3];
+		int err = i2c_write_dt(bus, command, sizeof(command));
+		if (err) {
+			return err;
+		}
+		k_sleep(K_MSEC(1));
+		err = i2c_read_dt(bus, response, sizeof(response));
+		if (err) {
+			return err;
+		}
+		if (crc8(response, 2, 0x31, 0xff, false) != response[2]) {
+			return -EIO;
+		}
+		uint16_t status = ((uint16_t)response[0] << 8) | response[1];
+		if (status & 0x07ff) {
+			/* The driver reads and CRC-checks all three measurement words. */
+			return sensor_sample_fetch(sensor);
+		}
+		int64_t remaining = deadline - k_uptime_get();
+		if (remaining <= 0) {
+			break;
+		}
+		k_sleep(K_MSEC(remaining < 100 ? remaining : 100));
+	}
+	return -ETIMEDOUT;
+}
+
+int app_scd4x_init(const struct device *sensor, const struct i2c_dt_spec *bus)
 {
 	const struct sensor_value altitude = { .val1 = CONFIG_APP_SCD4X_ALTITUDE };
 	const struct sensor_value offset = {0};
@@ -26,11 +68,7 @@ int app_scd4x_init(const struct device *sensor)
 			&calibration);
 	}
 	if (!err) {
-		/* Calibration restarts normal periodic measurements. The native
-		 * driver returns success without changing its cache when not ready;
-		 * wait for the first 5-second conversion before exposing that cache.
-		 */
-		k_sleep(K_MSEC(5000));
+		err = wait_for_first_sample(sensor, bus);
 	}
 	return err;
 }
