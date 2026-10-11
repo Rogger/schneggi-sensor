@@ -3,9 +3,37 @@
 #include "co2_zcl_logic.h"
 
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/drivers/sensor/scd4x.h>
+#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(app_scd4x, LOG_LEVEL_INF);
+
+int app_scd4x_init(const struct device *sensor)
+{
+	const struct sensor_value altitude = { .val1 = CONFIG_APP_SCD4X_ALTITUDE };
+	const struct sensor_value offset = {0};
+	const struct sensor_value calibration = { .val1 = 1 };
+	int err = sensor_attr_set(sensor, SENSOR_CHAN_CO2,
+		(enum sensor_attribute)SENSOR_ATTR_SCD4X_SENSOR_ALTITUDE, &altitude);
+	if (!err) {
+		err = sensor_attr_set(sensor, SENSOR_CHAN_AMBIENT_TEMP,
+			(enum sensor_attribute)SENSOR_ATTR_SCD4X_TEMPERATURE_OFFSET, &offset);
+	}
+	if (!err) {
+		err = sensor_attr_set(sensor, SENSOR_CHAN_CO2,
+			(enum sensor_attribute)SENSOR_ATTR_SCD4X_AUTOMATIC_CALIB_ENABLE,
+			&calibration);
+	}
+	if (!err) {
+		/* Calibration restarts normal periodic measurements. The native
+		 * driver returns success without changing its cache when not ready;
+		 * wait for the first 5-second conversion before exposing that cache.
+		 */
+		k_sleep(K_MSEC(5000));
+	}
+	return err;
+}
 
 void app_scd4x_update(struct app_environment_report *temperature,
 		     const struct device *sensor, uint8_t co2_endpoint,

@@ -21,6 +21,17 @@ static int transfer_result;
 static int install_result;
 static unsigned int transfer_initializations;
 static alarm_cb pending_install;
+static uint32_t advertised_version;
+static zb_zcl_status_t version_status;
+
+zb_zcl_status_t zb_zcl_set_attr_val(unsigned int ep, unsigned int cluster,
+  unsigned int role, unsigned int attr, uint8_t *value, bool check)
+{
+  assert(ep == 5 && cluster == 0x19 && role == 0);
+  assert(attr == ZB_ZCL_ATTR_OTA_UPGRADE_FILE_VERSION_ID && !check);
+  advertised_version = *(uint32_t *)value;
+  return version_status;
+}
 
 int app_ota_storage_init(void) { return 0; }
 const struct ota_storage app_ota_storage = {0};
@@ -169,6 +180,13 @@ int main(void)
   app_ota_startup_ready(false);
   health_tick(0);
   assert(confirms == 0 && feeds == 0 && reboots == 4);
+  app_ota_startup_ready(true);
+  assert(advertised_version == 0x02000006U);
+  assert(peripherals_ok);
+  version_status = 1;
+  app_ota_startup_ready(true);
+  assert(!peripherals_ok); /* A broken version attribute must fail trial startup. */
+  version_status = ZB_ZCL_STATUS_SUCCESS;
   app_ota_startup_ready(true);
   confirm_result = -EIO;
   health_tick(0);

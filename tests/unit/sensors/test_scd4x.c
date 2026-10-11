@@ -6,6 +6,7 @@
 #include "app_shtc3.h"
 #include "app_zcl_report.h"
 #include <zephyr/drivers/sensor.h>
+#include <zephyr/drivers/sensor/scd4x.h>
 #include <zcl/zb_zcl_reporting.h>
 #include <zcl/zb_zcl_temp_measurement_addons.h>
 #include "zcl/zb_zcl_concentration_measurement.h"
@@ -19,6 +20,42 @@ static int16_t temperatures[3];
 static float co2;
 static zb_zcl_status_t co2_status, temp_status;
 static zb_zcl_reporting_info_t reporting[3];
+static unsigned int setting_calls, setting_failure;
+static unsigned int warmups;
+
+int k_sleep(int duration)
+{
+	assert(duration == 5000 && setting_calls == 3 && setting_failure == 0);
+	warmups++;
+	return 0;
+}
+
+int sensor_attr_set(const struct device *sensor, enum sensor_channel channel,
+		    enum sensor_attribute attribute, const struct sensor_value *value)
+{
+	assert(sensor == &scd && value->val2 == 0);
+	const int attributes[] = { SENSOR_ATTR_SCD4X_SENSOR_ALTITUDE,
+		SENSOR_ATTR_SCD4X_TEMPERATURE_OFFSET, SENSOR_ATTR_SCD4X_AUTOMATIC_CALIB_ENABLE };
+	const int values[] = {574, 0, 1};
+	assert(setting_calls < 3 && (int)attribute == attributes[setting_calls]);
+	assert(value->val1 == values[setting_calls]);
+	assert(channel == (setting_calls == 1 ? SENSOR_CHAN_AMBIENT_TEMP : SENSOR_CHAN_CO2));
+	setting_calls++;
+	return setting_failure == setting_calls ? -EIO : 0;
+}
+
+static void test_calibration_setup(void)
+{
+	setting_calls = setting_failure = 0;
+	warmups = 0;
+	assert(app_scd4x_init(&scd) == 0 && setting_calls == 3 && warmups == 1);
+	for (setting_failure = 1; setting_failure <= 3; setting_failure++) {
+		setting_calls = 0;
+		warmups = 0;
+		assert(app_scd4x_init(&scd) == -EIO && setting_calls == setting_failure);
+		assert(warmups == 0);
+	}
+}
 
 int sensor_sample_fetch(const struct device *sensor)
 {
@@ -191,6 +228,7 @@ static void test_co2_clamping_preserved(void)
 
 int main(void)
 {
+	test_calibration_setup();
 	test_two_temperatures_and_one_fetch();
 	test_errors_are_independent_and_preserve_previous_state();
 	test_threshold_refresh_custom_reporting_and_range();

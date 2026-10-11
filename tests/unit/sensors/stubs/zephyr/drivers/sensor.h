@@ -2,9 +2,12 @@
 #define TEST_SENSOR_H_
 #include <zephyr/drivers/i2c.h>
 enum sensor_channel { SENSOR_CHAN_AMBIENT_TEMP, SENSOR_CHAN_HUMIDITY, SENSOR_CHAN_CO2 };
+enum sensor_attribute { SENSOR_ATTR_PRIV_START = 100 };
 struct sensor_value { int32_t val1; int32_t val2; };
 int sensor_channel_get(const struct device *, enum sensor_channel, struct sensor_value *);
 int sensor_sample_fetch(const struct device *);
+int sensor_attr_set(const struct device *, enum sensor_channel, enum sensor_attribute,
+                    const struct sensor_value *);
 static inline double sensor_value_to_double(const struct sensor_value *value)
 {
 	return value->val1 + value->val2 / 1000000.0;

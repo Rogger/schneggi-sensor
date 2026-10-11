@@ -1,6 +1,6 @@
 # Require deliberate opt-in to the SDK's publicly known development key.
 if(NOT SB_CONFIG_BOOTLOADER_MCUBOOT OR NOT SB_CONFIG_BOOT_SIGNATURE_TYPE_ECDSA_P256
-   OR NOT SB_CONFIG_MCUBOOT_MODE_SWAP_WITHOUT_SCRATCH)
+   OR NOT SB_CONFIG_MCUBOOT_MODE_SWAP_USING_MOVE)
   message(FATAL_ERROR "Schneggi OTA requires MCUboot with ECDSA P256 and swap using move")
 endif()
 if(NOT EXISTS "${SB_CONFIG_BOOT_SIGNATURE_KEY_FILE}")
