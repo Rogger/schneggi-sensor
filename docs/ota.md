@@ -121,6 +121,27 @@ check that ZHA sees endpoint 5's OTA client cluster. Re-interview/reconfigure th
 device if needed; if the cached endpoint list remains stale, removal and pairing
 again may be necessary. Confirm that the device has a firmware update entity.
 
+To deploy a release ZIP from a workstation to a Docker-based Home Assistant host,
+use `scripts/deploy_ota_to_ha.py` or `make deploy-ota`. The helper validates the
+ZIP and each image checksum, copies it over SSH, backs up the existing index,
+installs the images before replacing the index, and restarts the configured
+container. It asks once for the TrueNAS SSH/sudo password, using a Zenity dialog
+when available or a hidden terminal prompt otherwise. For example:
+
+```sh
+gh release download 2.0.5 --repo Rogger/schneggi-sensor \
+  --pattern schneggi-ota-public-test-key.zip
+make deploy-ota \
+  OTA_ARCHIVE=schneggi-ota-public-test-key.zip \
+  TRUENAS_HOST=admin@truenas \
+  HA_CONFIG_DIR=/path/on/truenas/to/home-assistant/config \
+  HA_CONTAINER=home-assistant
+```
+
+Set `TRUENAS_HOST`, `HA_CONFIG_DIR`, and `HA_CONTAINER` in ignored `local.mk` to
+avoid repeating host-specific values. The helper requires `ssh`, `scp`, `unzip`,
+Docker on the host, and Python 3; it does not remove older OTA files or backups.
+
 The device discovers the OTA server on joining/rebooting, retries discovery every
 24 hours if necessary, and queries a discovered server hourly. ZHA can then show
 the newer image. Select **Install** on the update entity. Sleepy-device polling
