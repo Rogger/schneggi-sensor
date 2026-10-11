@@ -15,6 +15,11 @@ OVERLAY ?= boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
 BUILD_DIR ?= build_default
 OTA_ALLOW_TEST_KEY ?= OFF
 OTA_SIGNING_KEY ?=
+OTA_ARCHIVE ?=
+TRUENAS_HOST ?=
+HA_CONFIG_DIR ?=
+HA_CONTAINER ?=
+HA_OTA_SUBDIR ?= zigbee_ota
 APP_DIR := $(CURDIR)
 PARENT_WORKSPACE := $(abspath $(APP_DIR)/..)
 NCS_WORKSPACE ?= $(if $(wildcard $(PARENT_WORKSPACE)/.west),$(PARENT_WORKSPACE),$(shell find $$HOME/ncs -mindepth 1 -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort | tail -n1))
@@ -36,12 +41,13 @@ WEST_ENV = \
 	ZEPHYR_SDK_INSTALL_DIR="$(TOOLCHAIN_PATH)/opt/zephyr-sdk" \
 	CCACHE_DISABLE=1
 
-.PHONY: help check check-toolchain prepare-build-cache west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2
+.PHONY: help check check-toolchain prepare-build-cache west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2 deploy-ota
 
 help:
-	@echo "Targets: west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2"
+	@echo "Targets: west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2 deploy-ota"
 	@echo "Overrides: TOOLCHAIN_PATH TOOLCHAIN_PYTHON XDG_CACHE_HOME NCS_WORKSPACE BOARD CONF_FILE OVERLAY BUILD_DIR SNR"
 	@echo "OTA: ota-package verify-ota; signing: OTA_SIGNING_KEY=/absolute/private/key.pem (or OTA_ALLOW_TEST_KEY=ON for development)"
+	@echo "OTA deployment: make deploy-ota OTA_ARCHIVE=... TRUENAS_HOST=user@host HA_CONFIG_DIR=/host/config HA_CONTAINER=container-name"
 
 check:
 	@test -x "$(TOOLCHAIN_PYTHON)" || (echo "Missing TOOLCHAIN_PYTHON: $(TOOLCHAIN_PYTHON)"; exit 1)
@@ -127,6 +133,17 @@ verify-ota: check-toolchain
 	@env $(WEST_ENV) "$(TOOLCHAIN_PYTHON)" "$(NCS_WORKSPACE)/bootloader/mcuboot/scripts/imgtool.py" verify \
 		-k "$(if $(OTA_SIGNING_KEY),$(OTA_SIGNING_KEY),$(NCS_WORKSPACE)/bootloader/mcuboot/root-ec-p256.pem)" \
 		"$(BUILD_DIR_ABS)/$(notdir $(APP_DIR))/zephyr/zephyr.signed.bin"
+
+deploy-ota:
+	@test -n "$(OTA_ARCHIVE)" || (echo "Set OTA_ARCHIVE to a release OTA ZIP"; exit 1)
+	@test -n "$(TRUENAS_HOST)" || (echo "Set TRUENAS_HOST to user@host"; exit 1)
+	@test -n "$(HA_CONFIG_DIR)" || (echo "Set HA_CONFIG_DIR to the host path mounted as /config"; exit 1)
+	@test -n "$(HA_CONTAINER)" || (echo "Set HA_CONTAINER to the Home Assistant container name"; exit 1)
+	@python3 scripts/deploy_ota_to_ha.py "$(OTA_ARCHIVE)" \
+		--host "$(TRUENAS_HOST)" \
+		--config-dir "$(HA_CONFIG_DIR)" \
+		--container "$(HA_CONTAINER)" \
+		--ota-subdir "$(HA_OTA_SUBDIR)"
 
 clean:
 	@case "$(realpath $(BUILD_DIR_ABS))" in \
