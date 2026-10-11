@@ -1,5 +1,5 @@
-identifier: adafruit_feather_nrf52840
-name: Adafruit Feather nRF52840 Express
+identifier: schneggi_sensor/nrf52840
+name: Schneggi Sensor
 type: mcu
 arch: arm
 toolchain:

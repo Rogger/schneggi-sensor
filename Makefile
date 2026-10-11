@@ -4,26 +4,28 @@
 -include local.mk
 
 # --- Configurable paths ---
-TOOLCHAIN_PATH ?= $(shell find $$HOME/ncs/toolchains -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n1)
-TOOLCHAIN_PYTHON ?= $(firstword $(wildcard $(TOOLCHAIN_PATH)/usr/local/bin/python3.*) $(wildcard $(TOOLCHAIN_PATH)/usr/local/bin/python3))
+NCS_VERSION := v3.4.1
+NCS_TOOLCHAINS_DIR ?= $(HOME)/ncs/toolchains
+TOOLCHAIN_PATH ?= $(shell python3 "$(APP_DIR)/scripts/find_toolchain.py" "$(NCS_TOOLCHAINS_DIR)" "$(NCS_VERSION)")
+TOOLCHAIN_PYTHON ?= $(if $(strip $(TOOLCHAIN_PATH)),$(firstword $(wildcard $(TOOLCHAIN_PATH)/usr/local/bin/python3.*) $(wildcard $(TOOLCHAIN_PATH)/usr/local/bin/python3)))
 XDG_CACHE_HOME ?= /tmp/codex-cache
 
 # --- Build config ---
-BOARD ?= adafruit_feather_nrf52840
+BOARD ?= schneggi_sensor/nrf52840
 CONF_FILE ?= prj_debug_no_scd4x.conf
-OVERLAY ?= boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
+OVERLAY ?= boards/schneggi_sensor.overlay;boards/no_scd4x.overlay
 BUILD_DIR ?= build_default
 OTA_ALLOW_TEST_KEY ?= OFF
 OTA_SIGNING_KEY ?=
 APP_DIR := $(CURDIR)
 PARENT_WORKSPACE := $(abspath $(APP_DIR)/..)
-NCS_WORKSPACE ?= $(if $(wildcard $(PARENT_WORKSPACE)/.west),$(PARENT_WORKSPACE),$(shell find $$HOME/ncs -mindepth 1 -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort | tail -n1))
+NCS_WORKSPACE ?= $(if $(wildcard $(PARENT_WORKSPACE)/.west),$(PARENT_WORKSPACE),$(HOME)/ncs/$(NCS_VERSION))
 BUILD_DIR_ABS = $(if $(filter /%,$(BUILD_DIR)),$(BUILD_DIR),$(APP_DIR)/$(BUILD_DIR))
 HEX ?= $(BUILD_DIR_ABS)/merged.hex
 
 # --- Flash config ---
 SNR ?= 1050218947
-NRFJPROG ?= nrfjprog
+NRFUTIL ?= nrfutil
 WEST ?= west
 
 WEST_ENV = \
@@ -40,19 +42,16 @@ WEST_ENV = \
 
 help:
 	@echo "Targets: west-update build build-no-scd4x build-scd4x build-debug build-debug-co2 build-production build-production-co2 test clean erase flash erase-and-flash flash-debug flash-debug-co2 flash-production flash-production-co2"
-	@echo "Overrides: TOOLCHAIN_PATH TOOLCHAIN_PYTHON XDG_CACHE_HOME NCS_WORKSPACE BOARD CONF_FILE OVERLAY BUILD_DIR SNR"
+	@echo "Overrides: NCS_TOOLCHAINS_DIR TOOLCHAIN_PATH TOOLCHAIN_PYTHON XDG_CACHE_HOME NCS_WORKSPACE BOARD CONF_FILE OVERLAY BUILD_DIR NRFUTIL SNR"
 	@echo "OTA: ota-package verify-ota; signing: OTA_SIGNING_KEY=/absolute/private/key.pem (or OTA_ALLOW_TEST_KEY=ON for development)"
 
-check:
-	@test -x "$(TOOLCHAIN_PYTHON)" || (echo "Missing TOOLCHAIN_PYTHON: $(TOOLCHAIN_PYTHON)"; exit 1)
-	@mkdir -p "$(XDG_CACHE_HOME)"
-	@test -d "$(NCS_WORKSPACE)/.west" || (echo "Invalid NCS_WORKSPACE: $(NCS_WORKSPACE)"; exit 1)
+check: check-toolchain
 	@test -d "$(NCS_WORKSPACE)/zephyr" || (echo "Missing zephyr dir in NCS_WORKSPACE: $(NCS_WORKSPACE). Run: make west-update"; exit 1)
-	@if ! printf '%s' "$(OVERLAY)" | grep -q 'boards/no_scd4x.overlay'; then \
-		test -d "$(NCS_WORKSPACE)/modules/sensirion_drivers" || (echo "Missing SCD4X module in workspace. Run: make west-update"; exit 1); \
-	fi
+	@test -d "$(NCS_WORKSPACE)/ncs-zigbee" || (echo "Missing Zigbee add-on. Run: make west-update"; exit 1)
+	@env $(WEST_ENV) "$(TOOLCHAIN_PYTHON)" scripts/check_sdk.py "$(NCS_WORKSPACE)" "$(APP_DIR)/west.yml"
 
 check-toolchain:
+	@test -n "$(TOOLCHAIN_PATH)" && test -d "$(TOOLCHAIN_PATH)/opt/zephyr-sdk" || (echo "Missing Nordic toolchain for $(NCS_VERSION). Install it with nrfutil toolchain-manager or set TOOLCHAIN_PATH."; exit 1)
 	@test -x "$(TOOLCHAIN_PYTHON)" || (echo "Missing TOOLCHAIN_PYTHON: $(TOOLCHAIN_PYTHON)"; exit 1)
 	@mkdir -p "$(XDG_CACHE_HOME)"
 	@test -d "$(NCS_WORKSPACE)/.west" || (echo "Invalid NCS_WORKSPACE: $(NCS_WORKSPACE)"; exit 1)
@@ -85,32 +84,32 @@ build: check prepare-build-cache
 
 build-no-scd4x: CONF_FILE=prj_debug_no_scd4x.conf
 build-no-scd4x: BUILD_DIR=build_no_scd4x
-build-no-scd4x: OVERLAY=boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
+build-no-scd4x: OVERLAY=boards/schneggi_sensor.overlay;boards/no_scd4x.overlay
 build-no-scd4x: build
 
 build-scd4x: CONF_FILE=prj_debug.conf
 build-scd4x: BUILD_DIR=build_scd4x
-build-scd4x: OVERLAY=boards/adafruit_feather_nrf52840.overlay
+build-scd4x: OVERLAY=boards/schneggi_sensor.overlay
 build-scd4x: build
 
 build-debug: BUILD_DIR=build_debug
 build-debug: CONF_FILE=prj_debug_no_scd4x.conf
-build-debug: OVERLAY=boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
+build-debug: OVERLAY=boards/schneggi_sensor.overlay;boards/no_scd4x.overlay
 build-debug: build
 
 build-debug-co2: BUILD_DIR=build_debug_co2
 build-debug-co2: CONF_FILE=prj_debug.conf
-build-debug-co2: OVERLAY=boards/adafruit_feather_nrf52840.overlay
+build-debug-co2: OVERLAY=boards/schneggi_sensor.overlay
 build-debug-co2: build
 
 build-production: BUILD_DIR=build_production
 build-production: CONF_FILE=prj_production_no_scd4x.conf
-build-production: OVERLAY=boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay
+build-production: OVERLAY=boards/schneggi_sensor.overlay;boards/no_scd4x.overlay
 build-production: build
 
 build-production-co2: BUILD_DIR=build_production_co2
 build-production-co2: CONF_FILE=prj_production.conf
-build-production-co2: OVERLAY=boards/adafruit_feather_nrf52840.overlay
+build-production-co2: OVERLAY=boards/schneggi_sensor.overlay
 build-production-co2: build
 
 test:
@@ -142,10 +141,11 @@ clean:
 	fi
 
 erase:
-	@$(NRFJPROG) -f NRF52 --snr $(SNR) --eraseall
+	@$(NRFUTIL) device erase --family nrf52 --serial-number $(SNR) --all
 
 flash:
-	@$(NRFJPROG) -f NRF52 --snr $(SNR) --sectorerase --program "$(HEX)" --verify --reset
+	@$(NRFUTIL) device program --family nrf52 --serial-number $(SNR) --firmware "$(HEX)" \
+		--options chip_erase_mode=ERASE_RANGES_TOUCHED_BY_FIRMWARE,verify=VERIFY_READ,reset=RESET_SYSTEM
 
 erase-and-flash: erase
 	@$(MAKE) flash

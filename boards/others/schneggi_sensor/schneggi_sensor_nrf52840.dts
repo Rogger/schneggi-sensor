@@ -7,12 +7,13 @@
 /dts-v1/;
 #include <nordic/nrf52840_qiaa.dtsi>
 #include "feather_connector.dtsi"
-#include "adafruit_feather_nrf52840-pinctrl.dtsi"
+#include "schneggi_sensor-pinctrl.dtsi"
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/regulator/nrf5x.h>
 
 / {
-	model = "Adafruit Feather nRF52840 Express";
-	compatible = "adafruit,feather-nrf52840";
+	model = "Schneggi Sensor";
+	compatible = "schneggi,sensor";
 
 	chosen {
 		zephyr,console = &uart0;
@@ -59,6 +60,10 @@
 
 &adc {
 	status = "okay";
+};
+
+&reg1 {
+	regulator-initial-mode = <NRF5X_REG_MODE_DCDC>;
 };
 
 &uicr {

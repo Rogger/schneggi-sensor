@@ -255,7 +255,17 @@ static void health_tick(zb_uint8_t unused)
 
 void app_ota_startup_ready(bool ready)
 {
-  peripherals_ok = ready;
+  /* The R23 add-on uses [major][minor][patch][build]. Deployed Schneggi
+   * devices and OTA packages use [major][minor][16-bit patch]. Set the shared
+   * endpoint attribute after registration and before starting the stack. */
+  zb_uint32_t version = SCHNEGGI_OTA_FILE_VERSION;
+  zb_zcl_status_t status = zb_zcl_set_attr_val(CONFIG_ZIGBEE_FOTA_ENDPOINT,
+    ZB_ZCL_CLUSTER_ID_OTA_UPGRADE, ZB_ZCL_CLUSTER_CLIENT_ROLE,
+    ZB_ZCL_ATTR_OTA_UPGRADE_FILE_VERSION_ID, (zb_uint8_t *)&version, ZB_FALSE);
+  peripherals_ok = ready && status == ZB_ZCL_STATUS_SUCCESS;
+  if (status != ZB_ZCL_STATUS_SUCCESS) {
+    LOG_ERR("Unable to configure compatible OTA version (%u)", status);
+  }
 }
 
 void app_ota_signal(zb_bufid_t bufid)

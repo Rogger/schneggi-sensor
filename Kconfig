@@ -10,6 +10,12 @@ config SENSOR_UPDATE_INTERVAL_MINUTES
   range 1 1440
   default 5
 
+config APP_SCD4X_ALTITUDE
+  int "SCD40 altitude compensation in metres"
+  depends on SCD4X
+  range 0 3000
+  default 574
+
 config BATTERY_UPDATE_INTERVAL_HOURS
   int "Battery update interval in hours"
   range 1 720

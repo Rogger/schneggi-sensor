@@ -33,7 +33,7 @@ controller and applies its sleep pin configuration between transfers.
 Polling, sampling intervals, and SHTC3 measurement accuracy are unchanged.
 
 Failed SHTC3 fetches attempt a sleep command after a 13 ms settling delay,
-working around the NCS 2.9.2 driver's missing error-path cleanup without changing
+working around the SDK driver's missing error-path cleanup without changing
 the shared SDK. Cleanup is best-effort: an inaccessible sensor cannot be forced
 to sleep. The original fetch error is retained and no failed sample is reported.
 The command and conversion timing follow the
@@ -79,7 +79,7 @@ and also uses the firmware fallback.
 
 The CO2 Concentration Measurement (`0x040D`) measured value is refreshed on
 every sample, so its Zigbee minimum and maximum reporting intervals can be
-configured. NCS 2.9.2's ZBOSS treats the single-precision CO2 value as a
+configured. ZBOSS treats the single-precision CO2 value as a
 changed/unchanged attribute and does not apply a numeric reportable-change
 threshold to it. The sensor still samples every minute in debug builds and
 every ten minutes in production builds; configuring a shorter reporting
@@ -103,20 +103,36 @@ The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All re
 
 ## Build
 This project uses a **west workspace** (manifest in `west.yml`) and a local Makefile wrapper.
+The supported stack is **nRF Connect SDK 3.4.1** with **Zigbee R23 add-on 1.4.0**,
+using its R22 behavior mode. SDK and add-on revisions are pinned in `west.yml`;
+Zephyr, MCUboot, and other modules come from the SDK manifest. The SCD40 uses
+Zephyr's native SCD4X driver. See [migration notes](docs/sdk-upgrade.md).
 
 ### 1) One-time workspace setup
-From the project directory:
+Install Nordic's `nrfutil` and the matching toolchain (the Makefile selects the
+toolchain associated with this release, rather than the first installed bundle):
 
 ```bash
-west init -l .
+nrfutil install toolchain-manager device
+nrfutil toolchain-manager install --ncs-version v3.4.1 --install-dir "$HOME/ncs"
+```
+
+From the project directory, initialize the workspace if it does not already exist:
+
+```bash
+nrfutil toolchain-manager launch --ncs-version v3.4.1 --install-dir "$HOME/ncs" -- west init -l .
 make west-update
 ```
 
-This initializes a west workspace in the parent directory and fetches all required modules
-(including `modules/sensirion_drivers` for SCD4X/CO2 builds).
+This initializes a west workspace in the parent directory and fetches all required modules.
+For an existing workspace, run `make west-update` with the new toolchain.
 
 The Makefile uses the parent west workspace when `../.west` exists. To use a
-different NCS workspace, pass `NCS_WORKSPACE=/path/to/workspace`.
+different NCS workspace, pass `NCS_WORKSPACE=/path/to/workspace`, or put this
+override in the ignored `local.mk`. That workspace must use this checkout's
+`west.yml`, including the Zigbee add-on. Builds reject mismatched manifests and
+module revisions. An SDK workspace initialized from Nordic's manifest alone
+does not include Schneggi's pinned add-on.
 Builds compare the cached sysbuild source with the selected NCS workspace and
 regenerate incompatible project build directories automatically. West's
 automatic pristine mode handles other cache incompatibilities.
@@ -195,6 +211,10 @@ and checksums after validation. Releases preserve the separate CO2/non-CO2 firmw
 
 ### 4) Flash
 
+Flash targets use `nrfutil device`, which requires SEGGER J-Link on the host.
+Programming erases only flash sectors touched by the firmware, verifies the
+result, and resets the sensor. `make erase` still erases the entire chip.
+
 ```bash
 make flash-debug
 ```
@@ -209,7 +229,7 @@ make flash-production-co2 SNR=<your_jlink_serial>
 
 ```bash
 make build BUILD_DIR=build_custom
-make build CONF_FILE=prj_production_no_scd4x.conf OVERLAY='boards/adafruit_feather_nrf52840.overlay;boards/no_scd4x.overlay'
+make build CONF_FILE=prj_production_no_scd4x.conf OVERLAY='boards/schneggi_sensor.overlay;boards/no_scd4x.overlay'
 make build-production-co2 NCS_WORKSPACE=/path/to/workspace
 make flash SNR=<your_jlink_serial>
 ```
@@ -224,6 +244,6 @@ make west-update
 ## Resources
 - The PCB design was inspired by [Getting Started With nRF52 MCU in a PCB](https://resources.altium.com/p/getting-started-nrf52-mcu-pcb#getting-started-schematics)
 - The repos [zigbee-plant-sensor](https://github.com/stanvn/zigbee-plant-sensor) and [b-parasite](https://github.com/rbaron/b-parasite) are a great start
-- The [Zyphr driver for SCD40](https://github.com/nobodyguy/sensirion_zephyr_drivers) 
+- The [Zephyr SCD4X driver](https://github.com/nrfconnect/sdk-zephyr/tree/ncs-v3.4.1/drivers/sensor/sensirion/scd4x)
 - The [nRF Sniffer](https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/protocols/zigbee/tools.html) with [https://www.wireshark.org](Wireshark) is a helpful tool to debug Zigbee communication
 - The [ZigBee specification 22 1.0](https://csa-iot.org/wp-content/uploads/2022/01/docs-05-3474-22-0csg-zigbee-specification-1.pdf) and [ZigBee Cluster Library R8](https://zigbeealliance.org/wp-content/uploads/2021/10/07-5123-08-Zigbee-Cluster-Library.pdf)

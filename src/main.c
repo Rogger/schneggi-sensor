@@ -19,10 +19,10 @@
 
 #include <zboss_api.h>
 #include <zboss_api_addons.h>
-#include <zb_mem_config_med.h>
 #include <zigbee/zigbee_app_utils.h>
 #include <zigbee/zigbee_error_handler.h>
 #include <zb_nrf_platform.h>
+#include <osif/zb_macll.h>
 #include "nrf_802154.h"
 #include "zb_schneggi_sensor.h"
 
@@ -35,7 +35,7 @@
 #include "app_network.h"
 #include "zigbee_signal_logic.h"
 
-#define APP_HAS_SCD4X DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd4x)
+#define APP_HAS_SCD4X DT_HAS_COMPAT_STATUS_OKAY(sensirion_scd40)
 
 // Sleep
 static const uint32_t SLEEP_INTERVAL_SECONDS = (uint32_t)CONFIG_SENSOR_UPDATE_INTERVAL_MINUTES * 60U;				   // HA minimum = 30s
@@ -275,9 +275,10 @@ static bool battery_monitor_ready;
 #endif
 
 #if APP_HAS_SCD4X
-static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd4x);
-#else
-static const struct device *scd;
+static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd40);
+static const struct i2c_dt_spec scd_bus =
+	I2C_DT_SPEC_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(sensirion_scd40));
+static bool scd_ready;
 #endif
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
@@ -309,20 +310,24 @@ static void init_shtc3_device(void)
 
 static void init_scd4x_device(void)
 {
-	if (!APP_HAS_SCD4X)
-	{
-		LOG_INF("SCD4X disabled by devicetree");
-		return;
-	}
-
+#if APP_HAS_SCD4X
 	if (scd == NULL || device_is_ready(scd) == false)
 	{
 		LOG_ERR("Failed to initialize SCD4X device");
 	}
 	else
 	{
-		LOG_DBG("Found device %s.", scd->name);
+		int err = app_scd4x_init(scd, &scd_bus);
+		scd_ready = err == 0;
+		if (err) {
+			LOG_ERR("SCD40 startup failed (%d)", err);
+		} else {
+			LOG_DBG("Found device %s.", scd->name);
+		}
 	}
+#else
+	LOG_INF("SCD4X disabled by devicetree");
+#endif
 }
 
 static void init_battery_monitor(void)
@@ -493,7 +498,7 @@ static void update_sensor_values(uint32_t current_cycle)
 	}
 
 #if APP_HAS_SCD4X
-	if (scd != NULL && device_is_ready(scd)) {
+	if (scd_ready) {
 		app_scd4x_update(&scd_temperature, scd, SCHNEGGI_ENDPOINT,
 				SCHNEGGI_SCD4X_TEMPERATURE_ENDPOINT,
 				current_cycle, SENSOR_REFRESH_CYCLES);
@@ -558,6 +563,7 @@ void zboss_signal_handler(zb_uint8_t param)
 		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START;
 		break;
 	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
+	case ZB_BDB_SIGNAL_TC_REJOIN_DONE:
 		LOG_INF("Reboot rejoin result: %d", status);
 		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_REBOOT;
 		break;
@@ -595,6 +601,15 @@ void zboss_signal_handler(zb_uint8_t param)
 
 	app_network_handle_signal(app_signal, status == RET_OK, parent_link_failure,
 				  sensor_loop, !APP_HAS_SCD4X);
+
+	/* R23 add-on 1.4.0 workaround KRKNWK-21014: restore the configured
+	 * receiver state after commissioning/rejoin so battery devices can sleep.
+	 */
+	if (signal == ZB_BDB_SIGNAL_STEERING || signal == ZB_BDB_SIGNAL_TC_REJOIN_DONE ||
+	    signal == ZB_BDB_SIGNAL_DEVICE_REBOOT) {
+		/* Backend of Nordic's ZB_TRANSCEIVER_SET_RX_ON_OFF workaround. */
+		zb_macll_trans_set_rx_on_off(zb_get_rx_on_when_idle());
+	}
 
 	/* Process leave/rejoin actions before OTA may reboot to reset its session. */
 	app_ota_signal(param);
@@ -672,9 +687,10 @@ int main(void)
 	// Erase persistent storage
 	zb_set_nvram_erase_at_start(ZB_FALSE);
 
-	app_ota_startup_ready(device_is_ready(shtc3) &&
-		(!APP_HAS_SCD4X || (scd != NULL && device_is_ready(scd)))
-#if !APP_HAS_SCD4X
+	app_ota_startup_ready(device_is_ready(shtc3)
+#if APP_HAS_SCD4X
+		&& scd_ready
+#else
 		&& battery_monitor_ready && adc_is_ready_dt(&battery_adc)
 #endif
 	);
