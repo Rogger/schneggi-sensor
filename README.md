@@ -64,7 +64,52 @@ disconnected; check repeated sensor reads, transient I2C failures, and recovery
 after a prolonged coordinator outage. Host tests cannot verify physical sleep
 current or bus suspend/resume behavior.
 
-## Zigbee reporting
+## Reset diagnostics
+
+Measurements start when the Zigbee stack starts, not only after a successful
+join, so the sensor attributes hold real values even if no join signal follows
+a reset. Joining still triggers an immediate measurement.
+
+The Basic cluster's Location Description (`0x0010`) on endpoint 1 holds the
+last reset and the number of resets since power-on, for example `wdt n3`. A
+battery sensor polls its parent only every 2 minutes, so an on-demand read from
+ZHA usually times out. Instead the sensor sends the value to the coordinator as
+an attribute report once per boot, as soon as it is joined, and retries with each
+measurement until the report is delivered. zigpy caches the reported value: in
+Home Assistant open the device, choose **⋮ → Download diagnostics**, and search
+the file for `location_desc`. No re-interview is required. The USB-powered CO2
+sensor sends the same report and also answers **⋮ → Manage Zigbee device →
+Basic → location_desc → Read attribute**.
+
+| Text | Cause |
+| --- | --- |
+| `power` | Power-on or brownout (counter restarts at 0) |
+| `wdt` | Hardware watchdog: the Zigbee scheduler stalled for 120 s |
+| `lockup` | CPU lockup |
+| `pin` | Reset pin or programmer |
+| `debug` | Debugger reset |
+| `unknown` | Reset proven by the counter, but no hardware cause recorded |
+| `sw<code>` | Software reset with the code below |
+
+| Code | `app_reboot()` reason |
+| --- | --- |
+| 0 | Not `app_reboot()`, e.g. a Zephyr fatal error |
+| 1 | OTA storage or watchdog initialization failed |
+| 2 | Zigbee startup or commissioning failed |
+| 3 | Measurement alarm could not be scheduled |
+| 4 | Rejoin retry alarm could not be scheduled |
+| 5 | Watchdog service alarm could not be scheduled |
+| 6 | Trial image failed its startup checks |
+| 7 | OTA transfer stalled |
+| 8 | OTA Upgrade End response missing |
+| 9 | OTA image installed |
+| 10 | Network leave during an OTA session |
+
+The count (`n`, at most 15) and the code are kept in the nRF52840 `GPREGRET2`
+register, which survives every reset except power-on and brownout. The value is
+read once at boot; a later attribute write from ZHA is replaced at the next reset.
+A sensor that is reset while it cannot reach the network reports the value after
+it joins again.
 
 ZHA can configure the standard minimum interval, maximum interval, and
 reportable change for endpoint 1's Temperature Measurement (`0x0402`) and
@@ -84,6 +129,17 @@ changed/unchanged attribute and does not apply a numeric reportable-change
 threshold to it. The sensor still samples every minute in debug builds and
 every ten minutes in production builds; configuring a shorter reporting
 interval does not produce a newer measurement.
+
+CO2 sensors upgraded to the endpoint-2 firmware were seen sending empty
+Report Attributes frames for endpoint 2 several times per second, flagged as
+manufacturer-specific with code `0x0000`. ZHA acknowledges each one; the backlog
+of acknowledgements (thousands per sensor) delayed every other request to the
+device by more than an hour, so OTA updates timed out. The firmware has no
+manufacturer-specific attributes, so before every measurement it checks its
+reporting slots: a slot with another manufacturer code is reset to the standard
+code, and a slot for a missing attribute or a duplicate is released. Repairs are
+logged and saved to NVRAM. After installing the fix, restart Home Assistant (or
+reload ZHA) to drop the backlog that has already queued up.
 
 ## PCB
 The PCB was designed with KiCad 7 and manufactured/assembled with JLCPCB. All relevant files can be found in the [repo](hardware)

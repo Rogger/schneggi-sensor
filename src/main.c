@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <string.h>
 #include <soc.h>
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
@@ -12,6 +13,9 @@
 #include "app_battery.h"
 #include "app_ota.h"
 #include "app_reboot.h"
+#include "app_reset_info.h"
+#include "app_reset_report.h"
+#include "app_reporting_repair.h"
 #include "app_scheduler.h"
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
@@ -283,6 +287,8 @@ static const struct device *scd;
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
 
 static struct app_environment environment;
+static struct app_reset_info reset_info;
+static char reset_text[APP_RESET_INFO_TEXT_SIZE];
 #if APP_HAS_SCD4X
 static struct app_environment_report scd_temperature;
 #endif
@@ -382,6 +388,15 @@ static void init_clusters_attr(void)
 
 	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.date_code, SCHNEGGI_BASIC_DATE_CODE,
 						  ZB_ZCL_STRING_CONST_SIZE(SCHNEGGI_BASIC_DATE_CODE));
+
+	/* Location Description (0x0010) carries the last reset cause for ZHA's
+	 * "Manage Zigbee device" dialog. It is already in the attribute list, so
+	 * the endpoint descriptor and ZHA's device interview stay unchanged.
+	 */
+	BUILD_ASSERT(sizeof(dev_ctx.basic_attr.location_id) >= APP_RESET_INFO_TEXT_SIZE,
+		     "Reset text exceeds the Location Description buffer");
+	ZB_ZCL_SET_STRING_VAL(dev_ctx.basic_attr.location_id, reset_text,
+			      (zb_uint8_t)strlen(reset_text));
 
 	/* Identify cluster attributes data */
 	dev_ctx.identify_attr.identify_time =
@@ -519,11 +534,14 @@ static void sensor_loop(zb_bufid_t bufid)
 	if (app_alarm_replace(sensor_loop, 0, SLEEP_INTERVAL_SECONDS * 1000U) != RET_OK)
 	{
 		LOG_ERR("Unable to schedule sensor measurements; restarting");
-		app_reboot();
+		app_reboot(APP_REBOOT_SENSOR_ALARM);
 		return;
 	}
 
+	/* Before publishing, so new values never go out through a broken slot. */
+	app_reporting_repair(&device_ctx);
 	update_sensor_values(current_cycle);
+	app_reset_report_poll();
 
 #if !APP_HAS_SCD4X
 	if (battery_monitor_ready)
@@ -607,9 +625,15 @@ void zboss_signal_handler(zb_uint8_t param)
 int main(void)
 {
 	LOG_INF("Schneggi sensor starting...");
+	/* Read before anything can reboot, so the previous cause is not lost. */
+	app_reset_info_load(&reset_info);
+	app_reset_info_format(&reset_info, reset_text, sizeof(reset_text));
+	LOG_INF("Last reset: %s (cause 0x%08" PRIx32 ")", reset_text, reset_info.cause);
+	app_reset_report_init(SCHNEGGI_ENDPOINT, reset_text);
+
 	if (app_ota_init() != 0) {
 		LOG_ERR("OTA/watchdog initialization failed");
-		app_reboot();
+		app_reboot(APP_REBOOT_OTA_INIT);
 		return -1;
 	}
 

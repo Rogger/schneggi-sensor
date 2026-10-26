@@ -113,7 +113,11 @@ static void test_startup_initializes_before_steering(void)
 	assert(state.stack_initialised == true);
 	assert(actions.commissioning_mode == APP_COMMISSIONING_INITIALIZATION);
 	assert(actions.start_rejoin == false);
-	assert_no_connected_side_effects(&actions);
+	/* Sampling starts with the stack, before and independent of any join. */
+	assert(actions.schedule_sensor_loop == true);
+	assert(actions.schedule_sensor_loop_delay_ms == 1000U);
+	assert(actions.set_long_poll_interval == false);
+	assert(actions.stop_rejoin == false);
 
 	app_zigbee_handle_signal(&state, APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START, true, false, &actions);
 	assert(actions.commissioning_mode == APP_COMMISSIONING_NONE);

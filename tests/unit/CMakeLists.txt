@@ -21,3 +21,5 @@ add_subdirectory(ota)
 
 add_subdirectory(sensors)
 add_subdirectory(runtime)
+add_subdirectory(reset_info)
+add_subdirectory(reporting_repair)

@@ -52,7 +52,7 @@ static void response_timeout(zb_uint8_t unused)
   LOG_WRN("OTA server response missing; rebooting to reset the OTA session");
   zigbee_fota_abort();
   end_download();
-  app_reboot();
+  app_reboot(APP_REBOOT_OTA_NO_RESPONSE);
 }
 
 static void download_timeout(zb_uint8_t unused)
@@ -64,7 +64,7 @@ static void download_timeout(zb_uint8_t unused)
   LOG_WRN("OTA transfer stalled; rebooting to reset the OTA session");
   zigbee_fota_abort();
   end_download();
-  app_reboot();
+  app_reboot(APP_REBOOT_OTA_STALLED);
 }
 
 static void download_activity(void)
@@ -101,7 +101,7 @@ static void ota_event(const struct zigbee_fota_evt *evt)
     break;
   case ZIGBEE_FOTA_EVT_FINISHED:
     end_download();
-    app_reboot();
+    app_reboot(APP_REBOOT_OTA_INSTALL);
     break;
   case ZIGBEE_FOTA_EVT_ERROR:
     end_download();
@@ -167,7 +167,9 @@ static void transfer_callback(zb_bufid_t bufid)
     err = ota_transfer_check();
     if (!err) { err = ota_transfer_discard(); }
     if (!err) { err = boot_request_upgrade(BOOT_UPGRADE_TEST); }
-    if (!err && ZB_SCHEDULE_APP_CALLBACK(install_ready, 0) != RET_OK) { app_reboot(); }
+    if (!err && ZB_SCHEDULE_APP_CALLBACK(install_ready, 0) != RET_OK) {
+      app_reboot(APP_REBOOT_OTA_INSTALL);
+    }
     break;
   default:
     /* APPLY only reports progress. ABORT resets SDK protocol parsing and
@@ -238,7 +240,7 @@ static void health_tick(zb_uint8_t unused)
    */
   if (app_alarm_replace(health_tick, 0, 30000) != RET_OK) {
     LOG_ERR("Unable to schedule watchdog service; restarting");
-    app_reboot();
+    app_reboot(APP_REBOOT_WATCHDOG_ALARM);
     return;
   }
   /* Reaching this alarm proves the stack scheduler runs. Do not require a
@@ -246,7 +248,7 @@ static void health_tick(zb_uint8_t unused)
   if (!boot_is_img_confirmed()) {
     if (!peripherals_ok || boot_write_img_confirmed() != 0) {
       LOG_ERR("Trial firmware failed startup checks; reverting");
-      app_reboot();
+      app_reboot(APP_REBOOT_TRIAL_FAILED);
       return;
     }
   }
@@ -267,7 +269,7 @@ void app_ota_signal(zb_bufid_t bufid)
                                                  manufacturer_set);
     if (app_alarm_replace(health_tick, 0, 10000) != RET_OK) {
       LOG_ERR("Unable to start watchdog service; restarting");
-      app_reboot();
+      app_reboot(APP_REBOOT_WATCHDOG_ALARM);
       return;
     }
   }
@@ -279,7 +281,7 @@ void app_ota_signal(zb_bufid_t bufid)
       end_download();
       /* Nordic abort does not clear a scheduled FINISH callback. Reset the
        * protocol state after main's normal leave handling. */
-      app_reboot();
+      app_reboot(APP_REBOOT_OTA_LEAVE);
     }
   }
 }

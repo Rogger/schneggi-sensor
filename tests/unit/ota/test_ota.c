@@ -21,6 +21,7 @@ static int transfer_result;
 static int install_result;
 static unsigned int transfer_initializations;
 static alarm_cb pending_install;
+static uint8_t reboot_reason;
 
 int app_ota_storage_init(void) { return 0; }
 const struct ota_storage app_ota_storage = {0};
@@ -90,6 +91,7 @@ int boot_write_img_confirmed(void)
   return confirm_result;
 }
 void power_up_unused_ram(void) { restores++; }
+void app_reset_info_set_reason(uint8_t reason) { reboot_reason = reason; }
 void sys_reboot(int kind) { assert(kind == SYS_REBOOT_COLD); reboots++; }
 int zigbee_fota_init(void (*callback)(const struct zigbee_fota_evt *))
 { assert(callback == ota_event); return 0; }
@@ -148,11 +150,13 @@ int main(void)
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   pending_download(0);
   assert(aborts == 1 && reboots == 1 && restores == 1 && POLL_IS(60000));
+  assert(reboot_reason == APP_REBOOT_OTA_STALLED);
 
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   struct zigbee_fota_evt event = { .id = ZIGBEE_FOTA_EVT_FINISHED };
   ota_event(&event);
   assert(reboots == 2 && restores == 2 && !pending_download);
+  assert(reboot_reason == APP_REBOOT_OTA_INSTALL);
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   current_signal = ZB_ZDO_SIGNAL_LEAVE;
   current_status = -EIO;
@@ -161,6 +165,7 @@ int main(void)
   current_status = RET_OK;
   app_ota_signal(1);
   assert(!downloading && aborts == 2 && reboots == 3);
+  assert(reboot_reason == APP_REBOOT_OTA_LEAVE);
 
   current_signal = ZB_ZDO_SIGNAL_SKIP_STARTUP;
   app_ota_signal(1);
@@ -169,6 +174,7 @@ int main(void)
   app_ota_startup_ready(false);
   health_tick(0);
   assert(confirms == 0 && feeds == 0 && reboots == 4);
+  assert(reboot_reason == APP_REBOOT_TRIAL_FAILED);
   app_ota_startup_ready(true);
   confirm_result = -EIO;
   health_tick(0);
@@ -219,6 +225,7 @@ int main(void)
   command(ZB_ZCL_OTA_UPGRADE_STATUS_START, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   assert(!downloading && !pending_download && POLL_IS(60000));
   assert(reboots == 8 && aborts == 4);
+  assert(reboot_reason == APP_REBOOT_OTA_STALLED);
 
   schedule_result = 0;
   /* CHECK occurs in DOWNLOADED; a lost end response must recover, even though
@@ -234,6 +241,7 @@ int main(void)
   current_status = RET_OK;
   pending_response(0);
   assert(reboots == 9 && aborts == 5 && !waiting_for_install && !pending_response);
+  assert(reboot_reason == APP_REBOOT_OTA_NO_RESPONSE);
 
   /* An explicit indefinite deferral has no APPLY callback. */
   command(ZB_ZCL_OTA_UPGRADE_STATUS_CHECK, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
@@ -296,6 +304,7 @@ int main(void)
   schedule_result = -ENOMEM;
   health_tick(0);
   assert(reboots == before_reboots + 1 && feeds == before_feeds && confirms == before_confirms);
+  assert(reboot_reason == APP_REBOOT_WATCHDOG_ALARM);
   current_signal = ZB_ZDO_SIGNAL_SKIP_STARTUP;
   current_status = RET_OK;
   app_ota_signal(1);
@@ -336,5 +345,6 @@ int main(void)
   schedule_result = -ENOMEM;
   command(ZB_ZCL_OTA_UPGRADE_STATUS_FINISH, ZB_ZCL_OTA_UPGRADE_STATUS_OK);
   assert(reboots == before_reboots + 1); /* A marked image still has a bounded reboot. */
+  assert(reboot_reason == APP_REBOOT_OTA_INSTALL);
   return 0;
 }

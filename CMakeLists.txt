@@ -25,6 +25,10 @@ target_sources(app PRIVATE
 	src/app_ota_storage.c
 	src/app_ota_transfer.c
 	src/app_reboot.c
+	src/app_reporting_repair.c
+	src/app_reset_info.c
+	src/app_reset_report.c
+	src/app_reset_store.c
 	src/app_scheduler.c
 	src/app_measurement_logic.c
 	src/app_zcl_report.c

@@ -32,7 +32,7 @@ static void execute_rejoin_outcome(const struct app_rejoin_outcome *outcome)
 				      outcome->retry_delay_s * 1000U) != RET_OK)
 		{
 			LOG_ERR("Unable to schedule network rejoin retry; restarting");
-			app_reboot();
+			app_reboot(APP_REBOOT_REJOIN_ALARM);
 			return;
 		}
 
@@ -98,14 +98,14 @@ static void execute_signal_actions(const struct app_zigbee_actions *actions,
 		comm_status != ZB_TRUE)
 	{
 		LOG_ERR("Unable to initialize commissioning; restarting");
-		app_reboot();
+		app_reboot(APP_REBOOT_ZIGBEE_STARTUP);
 		return;
 	}
 
 	if (actions->restart)
 	{
 		LOG_ERR("Zigbee startup failed; restarting");
-		app_reboot();
+		app_reboot(APP_REBOOT_ZIGBEE_STARTUP);
 		return;
 	}
 
@@ -121,7 +121,7 @@ static void execute_signal_actions(const struct app_zigbee_actions *actions,
 	    app_alarm_replace(sensor_loop, 0, actions->schedule_sensor_loop_delay_ms) != RET_OK)
 	{
 		LOG_ERR("Unable to start sensor measurements; restarting");
-		app_reboot();
+		app_reboot(APP_REBOOT_SENSOR_ALARM);
 		return;
 	}
 

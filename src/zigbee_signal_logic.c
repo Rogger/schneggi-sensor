@@ -28,6 +28,11 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 		{
 			state->stack_initialised = true;
 			actions->commissioning_mode = APP_COMMISSIONING_INITIALIZATION;
+			/* Measure independently of the network. Attributes then hold
+			 * real values even if no join signal follows this boot.
+			 */
+			actions->schedule_sensor_loop = true;
+			actions->schedule_sensor_loop_delay_ms = 1000U;
 		}
 		else
 		{
