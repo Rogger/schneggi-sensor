@@ -257,9 +257,8 @@ static void health_tick(zb_uint8_t unused)
 
 void app_ota_startup_ready(bool ready)
 {
-  /* The R23 add-on uses [major][minor][patch][build]. Deployed Schneggi
-   * devices and OTA packages use [major][minor][16-bit patch]. Set the shared
-   * endpoint attribute after registration and before starting the stack. */
+  /* Use the same packed version as the OTA image. Set the shared endpoint
+   * attribute after registration and before starting the stack. */
   zb_uint32_t version = SCHNEGGI_OTA_FILE_VERSION;
   zb_zcl_status_t status = zb_zcl_set_attr_val(CONFIG_ZIGBEE_FOTA_ENDPOINT,
     ZB_ZCL_CLUSTER_ID_OTA_UPGRADE, ZB_ZCL_CLUSTER_CLIENT_ROLE,

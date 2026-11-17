@@ -27,7 +27,6 @@
 #include <zigbee/zigbee_app_utils.h>
 #include <zigbee/zigbee_error_handler.h>
 #include <zb_nrf_platform.h>
-#include <osif/zb_macll.h>
 #include "nrf_802154.h"
 #include "zb_schneggi_sensor.h"
 
@@ -565,70 +564,7 @@ static void sensor_loop(zb_bufid_t bufid)
 
 void zboss_signal_handler(zb_uint8_t param)
 {
-	zb_zdo_app_signal_hdr_t *header = NULL;
-	zb_zdo_app_signal_type_t signal = zb_get_app_signal(param, &header);
-	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(param);
-	enum app_zigbee_signal app_signal = APP_ZIGBEE_SIGNAL_OTHER;
-	bool parent_link_failure = false;
-
-	switch (signal)
-	{
-	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
-		LOG_DBG("Zigbee stack startup: %d", status);
-		app_signal = APP_ZIGBEE_SIGNAL_SKIP_STARTUP;
-		break;
-	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
-		LOG_DBG("First device startup: %d", status);
-		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START;
-		break;
-	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
-	case ZB_BDB_SIGNAL_TC_REJOIN_DONE:
-		LOG_INF("Reboot rejoin result: %d", status);
-		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_REBOOT;
-		break;
-	case ZB_BDB_SIGNAL_STEERING:
-		LOG_INF("Network steering result: %d", status);
-		app_signal = APP_ZIGBEE_SIGNAL_STEERING;
-		break;
-	case ZB_ZDO_SIGNAL_LEAVE:
-		LOG_INF("Network leave result: %d", status);
-		app_signal = APP_ZIGBEE_SIGNAL_LEAVE;
-		break;
-	case ZB_COMMON_SIGNAL_CAN_SLEEP:
-		app_signal = APP_ZIGBEE_SIGNAL_CAN_SLEEP;
-		break;
-	case ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
-		LOG_DBG("Production config result: %d", status);
-		break;
-	case ZB_NLME_STATUS_INDICATION:
-	{
-		zb_zdo_signal_nlme_status_indication_params_t *indication =
-			ZB_ZDO_SIGNAL_GET_PARAMS(header, zb_zdo_signal_nlme_status_indication_params_t);
-		parent_link_failure =
-			indication->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE;
-		if (parent_link_failure)
-		{
-			LOG_WRN("Parent link failure");
-		}
-		app_signal = APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION;
-		break;
-	}
-	default:
-		LOG_INF("Unhandled signal %d. Status: %d", signal, status);
-		break;
-	}
-
-	app_network_handle_signal(app_signal, status == RET_OK, parent_link_failure,
-				  sensor_loop, !APP_HAS_SCD4X);
-
-	/* R23 add-on 1.4.0 workaround KRKNWK-21014: restore the configured
-	 * receiver state after commissioning/rejoin so battery devices can sleep.
-	 */
-	if (signal == ZB_BDB_SIGNAL_STEERING || signal == ZB_BDB_SIGNAL_TC_REJOIN_DONE ||
-	    signal == ZB_BDB_SIGNAL_DEVICE_REBOOT) {
-		/* Backend of Nordic's ZB_TRANSCEIVER_SET_RX_ON_OFF workaround. */
-		zb_macll_trans_set_rx_on_off(zb_get_rx_on_when_idle());
-	}
+	app_network_handle_signal(param, sensor_loop, !APP_HAS_SCD4X);
 
 	/* Process leave/rejoin actions before OTA may reboot to reset its session. */
 	app_ota_signal(param);

@@ -8,15 +8,16 @@ cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
-if(NOT CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
-  message(FATAL_ERROR "OTA version must be major.minor.patch without a build suffix")
-endif()
-if(CMAKE_MATCH_1 GREATER 255 OR CMAKE_MATCH_2 GREATER 255 OR CMAKE_MATCH_3 GREATER 255)
-  message(FATAL_ERROR "OTA version components must be 0..255 for the Zigbee add-on generator")
-endif()
-math(EXPR SCHNEGGI_OTA_FILE_VERSION
-  "(${CMAKE_MATCH_1} << 24) | (${CMAKE_MATCH_2} << 16) | ${CMAKE_MATCH_3}"
-  OUTPUT_FORMAT HEXADECIMAL)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/ota_image.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_ota.py")
+execute_process(
+  COMMAND ${PYTHON_EXECUTABLE} -B "${CMAKE_CURRENT_SOURCE_DIR}/scripts/ota_image.py"
+    version "${CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION}"
+  OUTPUT_VARIABLE SCHNEGGI_OTA_FILE_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY
+)
 
 project("Schneggi Sensor")
 target_compile_definitions(app PRIVATE SCHNEGGI_OTA_FILE_VERSION=${SCHNEGGI_OTA_FILE_VERSION})

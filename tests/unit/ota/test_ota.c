@@ -187,7 +187,7 @@ int main(void)
   assert(confirms == 0 && feeds == 0 && reboots == 4);
   assert(reboot_reason == APP_REBOOT_TRIAL_FAILED);
   app_ota_startup_ready(true);
-  assert(advertised_version == 0x02000006U);
+  assert(advertised_version == 0x0200FFFFU);
   assert(peripherals_ok);
   version_status = 1;
   app_ota_startup_ready(true);

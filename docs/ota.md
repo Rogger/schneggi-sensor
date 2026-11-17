@@ -71,13 +71,12 @@ MCUboot verifies the cryptographic signature on-device before booting a candidat
 The index includes a checksum for ZHA's file-integrity validation.
 
 Versions use `major.minor.patch`, encoded as `(major << 24) | (minor << 16) | patch`.
-Major and minor are 8-bit fields; patch occupies the remaining 16 bits. The current
-add-on generator limits each component to 0–255, so builds enforce that range.
-Do not use a `+build` suffix. Schneggi restores its deployed version encoding in
-both the OTA header and the endpoint's current-version attribute; the add-on's
-default patch/build encoding would make existing version comparisons incorrect.
-Equal and older versions are refused
-by the OTA client. To distribute a fix that restores earlier behavior, release
+Major and minor range from 0 to 255. Patch ranges from 0 to 65535.
+Do not use a `+build` suffix. The build uses one encoder for the OTA header
+and the endpoint's current-version attribute. Packaging checks the OTA header
+against the signed application.
+The OTA client refuses equal and older versions.
+To distribute a fix that restores earlier behavior, release
 that code with a new, higher version. Automatic MCUboot trial rollback is separate
 from this OTA version policy.
 

@@ -27,8 +27,9 @@ Nordic toolchain; the Makefile reads `toolchains.json` to select it.
   this SDK. A later migration to DTS partitions must reproduce every address
   and size before removing this file.
 - Schneggi keeps its durable OTA resume implementation. The add-on's optional
-  resume feature is disabled. The build converts the add-on's OTA version field
-  to Schneggi's existing format, and the application advertises the same value.
+  resume feature is disabled. The build passes Schneggi's packed version directly
+  to the add-on's OTA header writer and uses the same encoder for the application's
+  advertised version. This preserves the full 16-bit patch field.
   CO2 profiles advance to 2.0.9 and battery profiles advance to 1.0.10. The image
   types, manufacturer ID, and signing-key policy are retained.
 - Flash targets use `nrfutil device` with sector erase, verification, and reset.
