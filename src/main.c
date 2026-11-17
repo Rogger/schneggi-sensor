@@ -19,6 +19,7 @@
 #include "app_reporting_repair.h"
 #include "app_scheduler.h"
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/sys/util.h>
 #include <ram_pwrdn.h>
 
@@ -282,7 +283,7 @@ static bool battery_monitor_ready;
 static const struct device *scd = DEVICE_DT_GET_ANY(sensirion_scd40);
 static const struct i2c_dt_spec scd_bus =
 	I2C_DT_SPEC_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(sensirion_scd40));
-static bool scd_ready;
+static atomic_t scd_ready;
 #endif
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_DBG);
@@ -314,27 +315,25 @@ static void init_shtc3_device(void)
 	LOG_DBG("Found device %s.", shtc3->name);
 }
 
-static void init_scd4x_device(void)
-{
 #if APP_HAS_SCD4X
+static void init_scd4x_device(bool retry)
+{
 	if (scd == NULL || device_is_ready(scd) == false)
 	{
 		LOG_ERR("Failed to initialize SCD4X device");
+		return;
 	}
-	else
-	{
-		int err = app_scd4x_init(scd, &scd_bus, boot_is_img_confirmed());
-		scd_ready = err == 0;
-		if (err) {
-			LOG_ERR("SCD40 startup failed (%d)", err);
-		} else {
-			LOG_DBG("Found device %s.", scd->name);
-		}
+
+	int err = app_scd4x_init(scd, &scd_bus, retry);
+	if (err) {
+		LOG_ERR("SCD40 startup failed (%d)", err);
+		return;
 	}
-#else
-	LOG_INF("SCD4X disabled by devicetree");
-#endif
+	/* Make the populated driver cache visible to the Zigbee thread. */
+	atomic_set(&scd_ready, 1);
+	LOG_DBG("Found device %s.", scd->name);
 }
+#endif
 
 static void init_battery_monitor(void)
 {
@@ -513,12 +512,10 @@ static void update_sensor_values(uint32_t current_cycle)
 	}
 
 #if APP_HAS_SCD4X
-	if (scd_ready) {
+	if (atomic_get(&scd_ready)) {
 		app_scd4x_update(&scd_temperature, scd, SCHNEGGI_ENDPOINT,
 				SCHNEGGI_SCD4X_TEMPERATURE_ENDPOINT,
 				current_cycle, SENSOR_REFRESH_CYCLES);
-	} else {
-		LOG_WRN("SCD4X device not ready, keeping previous values");
 	}
 #endif
 }
@@ -601,7 +598,15 @@ int main(void)
 
 	init_shtc3_device();
 
-	init_scd4x_device();
+#if APP_HAS_SCD4X
+	const bool image_confirmed = boot_is_img_confirmed();
+	if (!image_confirmed) {
+		/* A trial image needs a valid sample before the stack can confirm it. */
+		init_scd4x_device(false);
+	}
+#else
+	LOG_INF("SCD4X disabled by devicetree");
+#endif
 
 	/* Keep the divider disabled even when the USB profile never samples it. */
 	init_battery_monitor();
@@ -650,7 +655,7 @@ int main(void)
 
 	app_ota_startup_ready(device_is_ready(shtc3)
 #if APP_HAS_SCD4X
-		&& scd_ready
+		&& atomic_get(&scd_ready)
 #else
 		&& battery_monitor_ready && adc_is_ready_dt(&battery_adc)
 #endif
@@ -658,6 +663,18 @@ int main(void)
 	zigbee_enable();
 
 	LOG_INF("Schneggi sensor started");
+
+#if APP_HAS_SCD4X
+	if (image_confirmed) {
+		/* Keep sensor startup waits on the main thread. Zigbee can service
+		 * the watchdog and report SHTC3 measurements while the SCD40 recovers.
+		 */
+		init_scd4x_device(true);
+		if (atomic_get(&scd_ready) && ZB_SCHEDULE_APP_CALLBACK(sensor_loop, 0) != RET_OK) {
+			LOG_WRN("Unable to request an immediate SCD40 report");
+		}
+	}
+#endif
 
 	k_sleep(K_FOREVER);
 

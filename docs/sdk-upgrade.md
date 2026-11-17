@@ -15,10 +15,12 @@ Nordic toolchain; the Makefile reads `toolchains.json` to select it.
 - The SCD40 uses the SDK's native SCD4X driver. Startup applies the original
   574 m altitude compensation, zero temperature offset, and enabled automatic
   calibration. Override altitude with `CONFIG_APP_SCD4X_ALTITUDE`. Calibration
-  or first-sample failure prevents trial-image confirmation. Startup polls
+  or first-sample failure prevents trial-image confirmation. Each attempt polls
   the sensor's data-ready status with CRC validation and a ten-second timeout,
   then fetches the first measurement through the native driver before exposing
-  its cache. Confirmed firmware retries initialization once after an error.
+  its cache. Confirmed firmware starts Zigbee first and retries calibration and
+  first-sample acquisition on the main thread with a 30-second delay between
+  failed attempts.
   See SCD4x datasheet sections 3.6.2 and 3.9.2 in the
   [Sensirion datasheet](https://sensirion.com/media/documents/48C4B7FB/67FE0194/CD_DS_SCD4x_Datasheet_D1.pdf).
 - MCUboot keeps ECDSA P-256 signing and swap using move. The fixed flash layout
@@ -60,8 +62,9 @@ Validate on one battery device and one USB CO2 device before rollout:
 
 1. Save flash and retain wired recovery access. Use the original signing key
    for devices that already have an OTA bootloader.
-2. Update from the previous stack through ZHA. Check the current version,
-   pairing, every sensor endpoint, calibration, and reporting after reboot.
+2. Update through ZHA from CO2 2.0.8 to 2.0.9 and battery 1.0.9 to 1.0.10.
+   Check the current version, pairing, every sensor endpoint, calibration, and
+   reporting after reboot.
 3. Exercise interrupted downloads, power loss, deferred installation, trial
    confirmation, and rollback as described in [OTA acceptance](ota.md#recovery-flash-limits-and-hardware-acceptance).
 4. Measure idle current without the debugger, including after leave/rejoin and

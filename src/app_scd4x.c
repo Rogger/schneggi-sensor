@@ -74,15 +74,16 @@ static int configure_and_fetch(const struct device *sensor, const struct i2c_dt_
 }
 
 int app_scd4x_init(const struct device *sensor, const struct i2c_dt_spec *bus,
-		  bool confirmed)
+		  bool retry)
 {
-	int err = configure_and_fetch(sensor, bus);
-	if (err && confirmed) {
-		LOG_WRN("SCD40 startup failed (%d), retrying", err);
-		k_sleep(K_MSEC(250));
-		err = configure_and_fetch(sensor, bus);
+	while (true) {
+		int err = configure_and_fetch(sensor, bus);
+		if (!err || !retry) {
+			return err;
+		}
+		LOG_WRN("SCD40 startup failed (%d), retrying in 30 seconds", err);
+		k_sleep(K_SECONDS(30));
 	}
-	return err;
 }
 
 void app_scd4x_update(struct app_environment_report *temperature,

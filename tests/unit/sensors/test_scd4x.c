@@ -25,19 +25,20 @@ static zb_zcl_reporting_info_t reporting[3];
 static unsigned int setting_calls, setting_failure;
 static unsigned int warmups;
 static unsigned int bad_crc_reads, retries;
+static bool hold_not_ready;
 static int64_t uptime_ms;
 
 int k_sleep(int duration)
 {
-	if (duration == 250) {
+	if (duration == 30000) {
 		retries++;
 		setting_calls = warmups = 0;
 		uptime_ms += duration;
 		return 0;
 	}
-	assert((duration == 1 || duration == 100) && setting_calls == 3 && setting_failure == 0);
+	assert(duration > 0 && duration <= 100 && setting_calls == 3 && setting_failure == 0);
 	uptime_ms += duration;
-	if (duration == 100) {
+	if (duration > 1) {
 		warmups++;
 	}
 	return 0;
@@ -57,11 +58,11 @@ int i2c_write_dt(const struct i2c_dt_spec *spec, const uint8_t *data, size_t siz
 
 int i2c_read_dt(const struct i2c_dt_spec *spec, uint8_t *data, size_t size)
 {
-	assert(spec == &scd_bus && size == 3 && warmups <= 1);
+	assert(spec == &scd_bus && size == 3);
 	/* Upper status bits are set even when the low 11 readiness bits are zero. */
 	data[0] = 0x80;
-	data[1] = warmups ? 1 : 0;
-	data[2] = warmups ? 0x93 : 0xa2;
+	data[1] = warmups && !hold_not_ready ? 1 : 0;
+	data[2] = data[1] ? 0x93 : 0xa2;
 	if (bad_crc_reads) {
 		data[2] ^= 1;
 		bad_crc_reads--;
@@ -113,15 +114,20 @@ static void test_startup_retry(void)
 	assert(app_scd4x_init(&scd, &scd_bus, false) == -EIO);
 	assert(retries == 0 && fetches == 0 && bad_crc_reads == 0);
 
-	setting_calls = 0;
-	bad_crc_reads = 1;
-	assert(app_scd4x_init(&scd, &scd_bus, true) == 0);
-	assert(retries == 1 && fetches == 1 && bad_crc_reads == 0);
-
 	setting_calls = warmups = retries = fetches = 0;
 	bad_crc_reads = 3;
-	assert(app_scd4x_init(&scd, &scd_bus, true) == -EIO);
-	assert(retries == 1 && fetches == 0 && bad_crc_reads == 1);
+	assert(app_scd4x_init(&scd, &scd_bus, true) == 0);
+	assert(retries == 3 && fetches == 1 && bad_crc_reads == 0);
+}
+
+static void test_trial_startup_timeout(void)
+{
+	setting_calls = setting_failure = warmups = fetches = retries = 0;
+	uptime_ms = 0;
+	hold_not_ready = true;
+	assert(app_scd4x_init(&scd, &scd_bus, false) == -ETIMEDOUT);
+	assert(uptime_ms == 10000 && retries == 0 && fetches == 0);
+	hold_not_ready = false;
 }
 
 int sensor_sample_fetch(const struct device *sensor)
@@ -297,6 +303,7 @@ int main(void)
 {
 	test_calibration_setup();
 	test_startup_retry();
+	test_trial_startup_timeout();
 	test_two_temperatures_and_one_fetch();
 	test_errors_are_independent_and_preserve_previous_state();
 	test_threshold_refresh_custom_reporting_and_range();
