@@ -24,10 +24,17 @@ static zb_zcl_status_t co2_status, temp_status;
 static zb_zcl_reporting_info_t reporting[3];
 static unsigned int setting_calls, setting_failure;
 static unsigned int warmups;
+static unsigned int bad_crc_reads, retries;
 static int64_t uptime_ms;
 
 int k_sleep(int duration)
 {
+	if (duration == 250) {
+		retries++;
+		setting_calls = warmups = 0;
+		uptime_ms += duration;
+		return 0;
+	}
 	assert((duration == 1 || duration == 100) && setting_calls == 3 && setting_failure == 0);
 	uptime_ms += duration;
 	if (duration == 100) {
@@ -55,6 +62,10 @@ int i2c_read_dt(const struct i2c_dt_spec *spec, uint8_t *data, size_t size)
 	data[0] = 0x80;
 	data[1] = warmups ? 1 : 0;
 	data[2] = warmups ? 0x93 : 0xa2;
+	if (bad_crc_reads) {
+		data[2] ^= 1;
+		bad_crc_reads--;
+	}
 	return 0;
 }
 
@@ -85,14 +96,32 @@ static void test_calibration_setup(void)
 	setting_calls = setting_failure = 0;
 	warmups = 0;
 	uptime_ms = 0;
-	assert(app_scd4x_init(&scd, &scd_bus) == 0 && setting_calls == 3 && warmups == 1);
+	assert(app_scd4x_init(&scd, &scd_bus, false) == 0 && setting_calls == 3 && warmups == 1);
 	assert(fetches == 1);
 	for (setting_failure = 1; setting_failure <= 3; setting_failure++) {
 		setting_calls = 0;
 		warmups = 0;
-		assert(app_scd4x_init(&scd, &scd_bus) == -EIO && setting_calls == setting_failure);
+		assert(app_scd4x_init(&scd, &scd_bus, false) == -EIO && setting_calls == setting_failure);
 		assert(warmups == 0);
 	}
+}
+
+static void test_startup_retry(void)
+{
+	setting_calls = setting_failure = warmups = fetches = retries = 0;
+	bad_crc_reads = 1;
+	assert(app_scd4x_init(&scd, &scd_bus, false) == -EIO);
+	assert(retries == 0 && fetches == 0 && bad_crc_reads == 0);
+
+	setting_calls = 0;
+	bad_crc_reads = 1;
+	assert(app_scd4x_init(&scd, &scd_bus, true) == 0);
+	assert(retries == 1 && fetches == 1 && bad_crc_reads == 0);
+
+	setting_calls = warmups = retries = fetches = 0;
+	bad_crc_reads = 3;
+	assert(app_scd4x_init(&scd, &scd_bus, true) == -EIO);
+	assert(retries == 1 && fetches == 0 && bad_crc_reads == 1);
 }
 
 int sensor_sample_fetch(const struct device *sensor)
@@ -267,6 +296,7 @@ static void test_co2_clamping_preserved(void)
 int main(void)
 {
 	test_calibration_setup();
+	test_startup_retry();
 	test_two_temperatures_and_one_fetch();
 	test_errors_are_independent_and_preserve_previous_state();
 	test_threshold_refresh_custom_reporting_and_range();

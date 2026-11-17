@@ -18,7 +18,8 @@ Nordic toolchain; the Makefile reads `toolchains.json` to select it.
   or first-sample failure prevents trial-image confirmation. Startup polls
   the sensor's data-ready status with CRC validation and a ten-second timeout,
   then fetches the first measurement through the native driver before exposing
-  its cache. See SCD4x datasheet sections 3.6.2 and 3.9.2 in the
+  its cache. Confirmed firmware retries initialization once after an error.
+  See SCD4x datasheet sections 3.6.2 and 3.9.2 in the
   [Sensirion datasheet](https://sensirion.com/media/documents/48C4B7FB/67FE0194/CD_DS_SCD4x_Datasheet_D1.pdf).
 - MCUboot keeps ECDSA P-256 signing and swap using move. The fixed flash layout
   in `pm_static.yml` is retained, including the OTA checkpoint page and Zigbee
@@ -28,7 +29,7 @@ Nordic toolchain; the Makefile reads `toolchains.json` to select it.
 - Schneggi keeps its durable OTA resume implementation. The add-on's optional
   resume feature is disabled. The build converts the add-on's OTA version field
   to Schneggi's existing format, and the application advertises the same value.
-  CO2 profiles advance to 2.0.6; battery profiles advance to 1.0.7. The image
+  CO2 profiles advance to 2.0.9 and battery profiles advance to 1.0.10. The image
   types, manufacturer ID, and signing-key policy are retained.
 - Flash targets use `nrfutil device` with sector erase, verification, and reset.
 - CI uses Ubuntu 24.04, the SDK 3.4.1 container pinned by digest, and updated
@@ -47,6 +48,8 @@ initialize west there, and set `NCS_WORKSPACE` to that parent. Keep `west.yml`
 linked to the checkout being built. The build's dependency check rejects an
 old SDK, a mismatched manifest, or modified tracked SDK files before invoking
 CMake. Untracked build files in SDK repositories do not affect this check.
+If a narrow west update left a required release tag out of the local clone,
+the check resolves that tag from the manifest's remote.
 Missing toolchains fail explicitly before the build environment is set up.
 
 ## Hardware validation

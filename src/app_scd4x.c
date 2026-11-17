@@ -51,7 +51,7 @@ static int wait_for_first_sample(const struct device *sensor,
 	return -ETIMEDOUT;
 }
 
-int app_scd4x_init(const struct device *sensor, const struct i2c_dt_spec *bus)
+static int configure_and_fetch(const struct device *sensor, const struct i2c_dt_spec *bus)
 {
 	const struct sensor_value altitude = { .val1 = CONFIG_APP_SCD4X_ALTITUDE };
 	const struct sensor_value offset = {0};
@@ -69,6 +69,18 @@ int app_scd4x_init(const struct device *sensor, const struct i2c_dt_spec *bus)
 	}
 	if (!err) {
 		err = wait_for_first_sample(sensor, bus);
+	}
+	return err;
+}
+
+int app_scd4x_init(const struct device *sensor, const struct i2c_dt_spec *bus,
+		  bool confirmed)
+{
+	int err = configure_and_fetch(sensor, bus);
+	if (err && confirmed) {
+		LOG_WRN("SCD40 startup failed (%d), retrying", err);
+		k_sleep(K_MSEC(250));
+		err = configure_and_fetch(sensor, bus);
 	}
 	return err;
 }

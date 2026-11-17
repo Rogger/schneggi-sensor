@@ -7,6 +7,50 @@ import subprocess
 import sys
 
 
+def expected_commit(project, path):
+    if re.fullmatch(r'[0-9a-f]{40}', project.revision):
+        return project.revision
+
+    tag = f'refs/tags/{project.revision}'
+    try:
+        return project.sha(tag)
+    except subprocess.CalledProcessError:
+        # Narrow west updates can leave the tag itself absent. Ask the
+        # manifest remote for the tag without changing the workspace.
+        peeled = tag + '^{}'
+        output = subprocess.check_output(
+            ['git', '-C', str(path), 'ls-remote', '--exit-code', '--',
+             project.url, tag, peeled], text=True)
+        refs = {}
+        for line in output.splitlines():
+            sha, ref = line.split('\t', 1)
+            refs[ref] = sha
+        return refs.get(peeled) or refs.get(tag)
+
+
+def check_project(project, path):
+    try:
+        expected = expected_commit(project, path)
+        head = project.sha('HEAD')
+        manifest_rev = project.sha('refs/heads/manifest-rev')
+        dirty = subprocess.check_output(
+            ['git', '-C', str(path), 'status', '--porcelain', '--untracked-files=no'],
+            text=True).strip()
+    except subprocess.CalledProcessError:
+        return [f'{project.name}: cannot verify revision {project.revision}']
+
+    if not expected:
+        return [f'{project.name}: cannot resolve tag {project.revision}']
+    errors = []
+    if manifest_rev != expected:
+        errors.append(f'{project.name}: manifest-rev differs from {project.revision}')
+    if head != expected:
+        errors.append(f'{project.name}: HEAD differs from {project.revision}')
+    if dirty:
+        errors.append(f'{project.name}: tracked SDK files have local changes')
+    return errors
+
+
 def check_sdk(workspace, manifest):
     # Use the matching toolchain's Python in CI/builds. PyYAML and west are SDK
     # prerequisites; resolving imports checks every SDK module, not only nrf.
@@ -21,25 +65,7 @@ def check_sdk(workspace, manifest):
     for project in resolved.projects:
         if project.name == 'manifest' or not resolved.is_active(project):
             continue
-        path = workspace / project.path
-        try:
-            head = subprocess.check_output(
-                ['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
-            # Narrow west updates store fetched tags as manifest-rev without
-            # creating local tag refs. This is west's resolved revision.
-            expected = project.sha('manifest-rev')
-            dirty = subprocess.check_output(
-                ['git', '-C', str(path), 'status', '--porcelain', '--untracked-files=no'],
-                text=True).strip()
-        except subprocess.CalledProcessError:
-            errors.append(f'{project.name}: missing revision {project.revision}')
-            continue
-        if re.fullmatch(r'[0-9a-f]{40}', project.revision) and expected != project.revision:
-            errors.append(f'{project.name}: manifest-rev differs from the pinned commit')
-        if head != expected:
-            errors.append(f'{project.name}: HEAD differs from {project.revision}')
-        if dirty:
-            errors.append(f'{project.name}: tracked SDK files have local changes')
+        errors.extend(check_project(project, workspace / project.path))
     if errors:
         raise ValueError('\n'.join(errors) +
                          '\nRestore local SDK edits, if any, then run make west-update '

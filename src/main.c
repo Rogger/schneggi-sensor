@@ -4,6 +4,7 @@
 #include <zephyr/types.h>
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
+#include <zephyr/dfu/mcuboot.h>
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/gpio.h>
@@ -323,7 +324,7 @@ static void init_scd4x_device(void)
 	}
 	else
 	{
-		int err = app_scd4x_init(scd, &scd_bus);
+		int err = app_scd4x_init(scd, &scd_bus, boot_is_img_confirmed());
 		scd_ready = err == 0;
 		if (err) {
 			LOG_ERR("SCD40 startup failed (%d)", err);
