@@ -51,6 +51,7 @@ such as `-rc1` are not supported by this workflow.
 | `schneggi-<profile>-<version>-public-test-key-merged.hex` | Wired installation including MCUboot |
 | `schneggi-<profile>-<version>-public-test-key-signed.bin` | Signed application only |
 | `schneggi-<profile>-<version>-public-test-key-partitions.yml` | Flash layout for each build |
+| `sdk-manifest.yml` | Exact resolved SDK and add-on module commits |
 | `FIRMWARE.md` | Source commit, versions, signing-key notice, and installation guidance |
 | `SHA256SUMS` | SHA-256 checksums of all the other assets |
 

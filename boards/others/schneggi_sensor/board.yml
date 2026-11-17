@@ -1,0 +1,6 @@
+board:
+  name: schneggi_sensor
+  full_name: Schneggi Sensor (nRF52840)
+  vendor: others
+  socs:
+    - name: nrf52840

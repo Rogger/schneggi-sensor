@@ -14,6 +14,7 @@ enum app_zigbee_signal {
 	APP_ZIGBEE_SIGNAL_SKIP_STARTUP,
 	APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START,
 	APP_ZIGBEE_SIGNAL_DEVICE_REBOOT,
+	APP_ZIGBEE_SIGNAL_TC_REJOIN_DONE,
 	APP_ZIGBEE_SIGNAL_STEERING,
 	APP_ZIGBEE_SIGNAL_LEAVE,
 	APP_ZIGBEE_SIGNAL_CAN_SLEEP,
@@ -38,6 +39,7 @@ struct app_zigbee_actions {
 	uint32_t long_poll_interval_ms;
 	bool start_rejoin;
 	bool stop_rejoin;
+	bool restore_receiver;
 	bool request_sleep;
 	bool restart;
 };

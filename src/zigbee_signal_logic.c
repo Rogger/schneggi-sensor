@@ -9,6 +9,7 @@ void app_zigbee_actions_reset(struct app_zigbee_actions *actions)
 	actions->long_poll_interval_ms = 0U;
 	actions->start_rejoin = false;
 	actions->stop_rejoin = false;
+	actions->restore_receiver = false;
 	actions->request_sleep = false;
 	actions->restart = false;
 }
@@ -52,7 +53,9 @@ void app_zigbee_handle_signal(struct app_zigbee_state *state,
 		break;
 
 	case APP_ZIGBEE_SIGNAL_DEVICE_REBOOT:
+	case APP_ZIGBEE_SIGNAL_TC_REJOIN_DONE:
 	case APP_ZIGBEE_SIGNAL_STEERING:
+		actions->restore_receiver = true;
 		if (status_ok)
 		{
 			actions->schedule_sensor_loop = true;

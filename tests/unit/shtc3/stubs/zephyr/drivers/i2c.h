@@ -5,4 +5,5 @@
 struct device { int unused; };
 struct i2c_dt_spec { const struct device *bus; uint16_t addr; };
 int i2c_write_dt(const struct i2c_dt_spec *bus, const uint8_t *data, size_t size);
+int i2c_read_dt(const struct i2c_dt_spec *bus, uint8_t *data, size_t size);
 #endif
