@@ -44,8 +44,9 @@ require a private key. Use a separate build directory when changing signing keys
 ## Build an update
 
 Increase `CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION` in the desired profile's `prj_*.conf`,
-for example from `1.0.0` to `1.0.1`. Keep debug and production versions aligned
-within each hardware variant; CO2 and non-CO2 have separate version histories.
+for example from `2.1.0` to `2.1.1`. Keep all four profiles on the same version.
+From 2.1.0, CO2 and non-CO2 share one version; earlier releases versioned them
+separately (CO2 up to 2.0.8, non-CO2 up to 1.0.9).
 Rebuild with the original signing key:
 
 ```sh

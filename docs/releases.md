@@ -14,17 +14,16 @@ builds. See [OTA setup and compatibility](ota.md).
 
 ## Publish a new version
 
-1. Increase `CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION` in both debug and production
-   configurations for each variant that changed. CO2 and non-CO2 have separate
-   version histories; leave an unchanged variant's version alone. Merge the
-   changes into `main` after testing.
+1. Increase `CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION` to the same new version in all
+   four `prj_*.conf` files. From 2.1.0, CO2 and non-CO2 share one version, which
+   matches the release tag. Merge the changes into `main` after testing.
 2. Tag that commit and push the tag, for example:
 
    ```sh
    git switch main
    git pull --ff-only
-   git tag -a 2.0.3 -m 'Schneggi 2.0.3'
-   git push origin 2.0.3
+   git tag -a 2.1.0 -m 'Schneggi 2.1.0'
+   git push origin 2.1.0
    ```
 
 3. Follow **Actions → Release firmware**. Once validation and uploads finish,
@@ -32,9 +31,10 @@ builds. See [OTA setup and compatibility](ota.md).
    commit, per-profile versions, and the public-key notice.
 
 The repository tag labels a source snapshot; it does not override firmware
-versions. For example, a `2.0.3` release may contain CO2 `2.0.3` and non-CO2
-`1.0.5`. Increase each affected variant's firmware version before tagging, or
-existing devices running that version will refuse the OTA update.
+versions. Set the firmware version to the tag before tagging, or existing devices
+running that version will refuse the OTA update. Releases before 2.1.0 versioned
+the variants separately; for example, `2.0.8` contained CO2 `2.0.8` and the
+`1.0.9` release contained non-CO2 `1.0.9`.
 
 Alternatively, use **Actions → Release firmware → Run workflow**, select `main`,
 and enter an existing tag. It must point to a commit containing the release

@@ -32,7 +32,8 @@ Nordic toolchain; the Makefile reads `toolchains.json` to select it.
   resume feature is disabled. The build passes Schneggi's packed version directly
   to the add-on's OTA header writer and uses the same encoder for the application's
   advertised version. This preserves the full 16-bit patch field.
-  CO2 profiles advance to 2.0.9 and battery profiles advance to 1.0.10. The image
+  Both variants advance to 2.1.0 (CO2 from 2.0.8, battery from 1.0.9) and share
+  one version from now on. The image
   types, manufacturer ID, and signing-key policy are retained.
 - Flash targets use `nrfutil device` with sector erase, verification, and reset.
 - CI uses Ubuntu 24.04, the SDK 3.4.1 container pinned by digest, and updated
@@ -62,7 +63,7 @@ Validate on one battery device and one USB CO2 device before rollout:
 
 1. Save flash and retain wired recovery access. Use the original signing key
    for devices that already have an OTA bootloader.
-2. Update through ZHA from CO2 2.0.8 to 2.0.9 and battery 1.0.9 to 1.0.10.
+2. Update through ZHA from CO2 2.0.8 and battery 1.0.9 to 2.1.0.
    Check the current version, pairing, every sensor endpoint, calibration, and
    reporting after reboot.
 3. Exercise interrupted downloads, power loss, deferred installation, trial
