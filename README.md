@@ -78,7 +78,10 @@ See [build.md](docs/build.md) for workspace options, overrides and test coverage
 ## Hardware
 
 The PCBs were designed in KiCad 7 and manufactured and assembled by JLCPCB. Schematics, layouts and case files are in [`hardware/`](hardware).
-The renders above come from the KiCad boards (`kicad-cli pcb render`) and the case STLs.
+
+<p align="center"><img src="docs/img/exploded.png" alt="Exploded view: lid, CO2 board, base board, bottom shell" width="480"></p>
+
+The renders are generated from the KiCad boards and case STLs with `uv run scripts/render_images.py`.
 
 | ![Built sensor](https://github.com/user-attachments/assets/109c8689-d393-492c-b431-5e4256592e8a) | ![Case open](https://github.com/user-attachments/assets/0dd84a7b-14a9-4d71-ae2d-bca5665277f6) |
 | :---: | :---: |
