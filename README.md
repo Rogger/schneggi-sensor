@@ -13,7 +13,7 @@ It runs on an nRF52840, updates over the air through ZHA, and lasts a long time 
 |  | 🔋 Base | 🌬️ CO2 |
 | --- | --- | --- |
 | **Sensors** | [SHTC3](https://www.sensirion.com/products/catalog/SHTC3/) temperature + humidity | + [SCD40](https://sensirion.com/products/catalog/SCD40) CO2 and a second temperature |
-| **Power** | 3–6 V via JST (e.g. 350 mAh Li-Po), ~3 µA average (measured before OTA support) | USB-C, no battery reported |
+| **Power** | 3–6 V via JST (e.g. 350 mAh Li-Po), ~3 µA average (measured before OTA support) | USB-C adapter into the same JST input, no battery reported |
 | **Zigbee role** | Sleepy end device | End device, receiver always on |
 | **Sampling** | 1 min (debug) / 10 min (production) | 1 min (debug) / 10 min (production) |
 | **OTA via ZHA** | ✅ | ✅ |
