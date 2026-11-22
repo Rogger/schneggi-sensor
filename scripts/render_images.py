@@ -7,7 +7,7 @@
 # ///
 """Render the README images in docs/img from the KiCad boards and case STLs.
 
-Needs kicad-cli (KiCad 8+), ImageMagick and an EGL-capable OpenGL driver.
+Needs kicad-cli (KiCad 9+ for `pcb render`), ImageMagick and an EGL-capable OpenGL driver.
 Run from anywhere:  uv run scripts/render_images.py
 """
 
@@ -283,17 +283,6 @@ def label(image, project, anchors, width, left_anchors=None):
     return canvas
 
 
-def render_case(tmp):
-    """Case with the lid lifted off the bottom shell."""
-    stage = Stage()
-    lift = 14
-    stage.add_stl(CASE_BOTTOM, 0, SHELL_COLOR)
-    stage.add_stl(CASE_TOP, lift, LID_COLOR)
-    image, _ = stage.render(np.array([20, (35 + lift) / 2, -15]), (1000, 1100), distance=480)
-    image.save(tmp / 'case_raw.png')
-    trim(tmp / 'case_raw.png', OUT / 'case.png', '600x400')
-
-
 def render_exploded(tmp):
     """Exploded stack: bottom shell, base board, standoffs and I2C cable,
     CO2 board, lid."""
@@ -333,7 +322,6 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         render_board_images(tmp)
-        render_case(tmp)
         render_exploded(tmp)
     print(f'Wrote {", ".join(sorted(p.name for p in OUT.glob("*.png")))} to {OUT}')
 
