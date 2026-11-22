@@ -43,7 +43,7 @@ Nordic toolchain; the Makefile reads `toolchains.json` to select it.
 ## Local setup
 
 Install the matching toolchain and fetch the new dependencies as described in
-the [README](../README.md#build). Existing NCS 2.9.2 build directories need
+[build.md](build.md). Existing NCS 2.9.2 build directories need
 regeneration. The Makefile handles a changed sysbuild workspace automatically;
 use a fresh build directory when changing signing keys.
 
