@@ -460,7 +460,7 @@
       (net 4 "GND") (pinfunction "GND") (pintype "unspecified") (tstamp d8de300e-f274-4945-b4f9-12b4971c9a27))
     (pad "21" smd rect (at 0 0 90) (size 4.8 4.8) (layers "F.Cu" "F.Paste" "F.Mask")
       (net 4 "GND") (pinfunction "GND") (pintype "unspecified") (tstamp a950322c-4452-4bad-bb98-0c2df46d7202))
-    (model "/home/michael/Documents/KiCad/schneggi_sensor_kicad7/schneggi_library.3dshapes/LGA-20_L10.1-W10.1-P1.25-TL.wrl"
+    (model "${KIPRJMOD}/schneggi_library.3dshapes/LGA-20_L10.1-W10.1-P1.25-TL.wrl"
       (offset (xyz 0 -0 -0))
       (scale (xyz 1 1 1))
       (rotate (xyz 0 0 0))
