@@ -77,7 +77,7 @@ See [build.md](docs/build.md) for workspace options, overrides and test coverage
 
 ## Hardware
 
-The PCBs were designed in KiCad 7 and manufactured and assembled by JLCPCB. Schematics, layouts and case files are in [`hardware/`](hardware).
+The sensor PCBs were designed in KiCad 7 (the flash adapter in KiCad 9) and manufactured and assembled by JLCPCB. Schematics, layouts and case files are in [`hardware/`](hardware).
 
 <p align="center"><img src="docs/img/exploded.png" alt="Exploded view: lid, CO2 board, base board, bottom shell" width="480"></p>
 
