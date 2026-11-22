@@ -46,7 +46,8 @@ BOARD_THICKNESS = 1.6
 # Shared board layout (board-local mm, origin at the KiCad grid origin).
 MOUNTING_HOLES = [(2.2, 2.2), (32.8, 2.2), (2.2, 27.8), (32.8, 27.8)]
 STANDOFF_LENGTH = 10.0
-STANDOFF_ACROSS_FLATS = 3.2  # M2 hex standoff
+STANDOFF_ACROSS_FLATS = 3.2  # M2 male-female hex standoff
+STANDOFF_STUD_LENGTH = 6.0  # threaded M2 stud, pointing down into the base board
 STANDOFF_COLOR = [0.80, 0.64, 0.32]  # brass
 # CN2: JST SH SM04B-SRSS-TB, side entry, socket facing the board edge (y = 0).
 I2C_X = 9.8
@@ -200,12 +201,20 @@ def tube(points, radius, sections=12):
 
 
 def standoffs(bottom_y):
+    """Male-female M2 hex standoffs: hex body from bottom_y up, threaded stud below."""
     radius = STANDOFF_ACROSS_FLATS / np.sqrt(3)
+    pitch = 0.4  # M2 coarse thread
     meshes = []
     for x, y in MOUNTING_HOLES:
         a = board_point(x, y, bottom_y)
         meshes.append(trimesh.creation.cylinder(
             radius=radius, segment=[a, a + [0, STANDOFF_LENGTH, 0]], sections=6))
+        # Thread suggested by alternating crest/root rings.
+        for i in range(int(STANDOFF_STUD_LENGTH / pitch)):
+            top = a - [0, i * pitch, 0]
+            r = 1.0 if i % 2 == 0 else 0.82
+            meshes.append(trimesh.creation.cylinder(
+                radius=r, segment=[top - [0, pitch, 0], top], sections=20))
     return trimesh.util.concatenate(meshes)
 
 
@@ -246,8 +255,12 @@ def label(image, project, anchors, width, left_anchors=None):
     font_path = next((f for f in FONT_CANDIDATES if Path(f).exists()), None)
     font = ImageFont.truetype(font_path, 46) if font_path else ImageFont.load_default()
     left_anchors = left_anchors or {}
-    left_pad = 420 if left_anchors else 0
-    canvas = Image.new('RGBA', (left_pad + width + 520, image.height), (0, 0, 0, 0))
+    def text_width(texts):
+        return max((font.getlength(s) for s in texts), default=0)
+
+    left_pad = int(text_width(left_anchors) + 140) if left_anchors else 0
+    right_pad = int(text_width(anchors) + 80)
+    canvas = Image.new('RGBA', (left_pad + width + right_pad, image.height), (0, 0, 0, 0))
     canvas.paste(image, (left_pad, 0))
     draw = ImageDraw.Draw(canvas)
 
@@ -287,7 +300,7 @@ def render_exploded(tmp):
     lift = {'base': 42, 'co2': 76, 'lid': 92}
     base_y = STANDOFF_Y + lift['base']
     co2_y = STANDOFF_Y + lift['co2']
-    standoff_y = (base_y + BOARD_THICKNESS + co2_y - STANDOFF_LENGTH) / 2
+    standoff_y = (base_y + BOARD_THICKNESS + co2_y - STANDOFF_LENGTH + STANDOFF_STUD_LENGTH) / 2
     stage = Stage()
     stage.add_stl(CASE_BOTTOM, 0, SHELL_COLOR)
     stage.add_board(export_glb(tmp, 'base'), base_y)
@@ -304,7 +317,7 @@ def render_exploded(tmp):
     labelled = label(image, project, {
         'Lid': (45, lift['lid'] + 28, -20),
         'CO2 board (optional)': (35, co2_y + 1, -15),
-        'M2 standoffs': right_hole + [STANDOFF_ACROSS_FLATS / 2, 0, 0],
+        'M2 male-female standoffs': right_hole + [STANDOFF_ACROSS_FLATS / 2, 0, 0],
         'Base board': (38, base_y + 1, -15),
         'Bottom shell': (45, 12, -20),
     }, size[0], left_anchors={'I2C cable': cable_anchor})
