@@ -83,9 +83,6 @@ The sensor PCBs were designed in KiCad 7 (the flash adapter in KiCad 9) and manu
 
 The renders are generated from the KiCad boards and case STLs with `uv run scripts/render_images.py`.
 
-| ![Built sensor](https://github.com/user-attachments/assets/109c8689-d393-492c-b431-5e4256592e8a) | ![Case open](https://github.com/user-attachments/assets/0dd84a7b-14a9-4d71-ae2d-bca5665277f6) |
-| :---: | :---: |
-
 ## Resources
 
 - PCB design inspired by [Getting Started With nRF52 MCU in a PCB](https://resources.altium.com/p/getting-started-nrf52-mcu-pcb#getting-started-schematics)
