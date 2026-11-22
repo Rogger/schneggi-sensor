@@ -22,9 +22,9 @@ def read_config(path):
 
 
 def version_number(version):
-    match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)', version)
+    match = re.fullmatch(r'([0-9]+)\.([0-9]+)\.([0-9]+)', version)
     if not match:
-        raise ValueError("Use major.minor.patch; build suffixes do not affect Zigbee versions")
+        raise ValueError("Use major.minor.patch without a build suffix")
     major, minor, patch = map(int, match.groups())
     if major > 255 or minor > 255 or patch > 65535:
         raise ValueError("Version exceeds Zigbee/MCUboot field widths")
@@ -85,6 +85,20 @@ def validate_dfu_payload(payload, signed):
         raise ValueError("DFU package must contain exactly the current signed application as image 0")
 
 
+def validate_application(payload, signed, version):
+    if len(signed) < 32 or struct.unpack_from('<I', signed)[0] != 0x96F3B83D:
+        raise ValueError("Missing MCUboot image header")
+    major, minor, patch = struct.unpack_from('<BBH', signed, 20)
+    signed_version = f'{major}.{minor}.{patch}'
+    if version_number(signed_version) != version:
+        raise ValueError("MCUboot and Zigbee versions differ")
+    # Move-swap needs a spare erase page and a trailer page in each 0x75000 slot.
+    if len(signed) > 0x73000:
+        raise ValueError("Signed image exceeds the fixed OTA slot capacity")
+    validate_dfu_payload(payload, signed)
+    return signed_version
+
+
 def validate_build(build):
     configs = list(build.glob('*/zephyr/.config'))
     apps = [p for p in configs if read_config(p).get('CONFIG_ZIGBEE_FOTA') == 'y']
@@ -108,16 +122,8 @@ def validate_build(build):
     if payload != (build / 'dfu_multi_image.bin').read_bytes():
         raise ValueError("OTA payload differs from the generated DFU package")
     signed = (apps[0].parent / 'zephyr.signed.bin').read_bytes()
-    if len(signed) < 32 or struct.unpack_from('<I', signed)[0] != 0x96F3B83D:
-        raise ValueError("Missing MCUboot image header")
-    major, minor, patch = struct.unpack_from('<BBH', signed, 20)
-    if (major << 24 | minor << 16 | patch) != version:
-        raise ValueError("MCUboot and Zigbee versions differ")
-    # Move-swap needs a spare erase page and a trailer page in each 0x75000 slot.
-    if len(signed) > 0x73000:
-        raise ValueError("Signed image exceeds the fixed OTA slot capacity")
-    validate_dfu_payload(payload, signed)
-    metadata['changelog'] = f"Schneggi {PROFILES[image_type]} {major}.{minor}.{patch}"
+    signed_version = validate_application(payload, signed, version)
+    metadata['changelog'] = f"Schneggi {PROFILES[image_type]} {signed_version}"
     return path, metadata
 
 

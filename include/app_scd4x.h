@@ -2,6 +2,14 @@
 #define APP_SCD4X_H_
 
 #include "app_environment.h"
+#include <zephyr/drivers/i2c.h>
+
+/* Apply calibration and fetch the first sample. Each attempt waits up to ten
+ * seconds for data readiness. With retry enabled, keep trying with a
+ * 30-second delay between attempts. Call from a thread that can sleep.
+ */
+int app_scd4x_init(const struct device *sensor, const struct i2c_dt_spec *bus,
+		  bool retry);
 
 /* Fetch once and publish CO2 and temperature independently on their endpoints.
  * Called on the Zigbee thread with a ready SCD4x device.

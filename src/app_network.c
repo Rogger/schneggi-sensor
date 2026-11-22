@@ -3,8 +3,10 @@
 #include "app_reboot.h"
 #include "app_scheduler.h"
 #include "rejoin_logic.h"
+#include "zigbee_signal_logic.h"
 
 #include <inttypes.h>
+#include <osif/zb_macll.h>
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(app_network, LOG_LEVEL_INF);
@@ -142,10 +144,74 @@ static void execute_signal_actions(const struct app_zigbee_actions *actions,
 	}
 }
 
-void app_network_handle_signal(enum app_zigbee_signal signal, bool status_ok,
-			       bool parent_link_failure, zb_callback_t sensor_loop, bool sleepy)
+void app_network_handle_signal(zb_bufid_t bufid, zb_callback_t sensor_loop, bool sleepy)
 {
+	zb_zdo_app_signal_hdr_t *header = NULL;
+	zb_zdo_app_signal_type_t signal = zb_get_app_signal(bufid, &header);
+	zb_ret_t status = ZB_GET_APP_SIGNAL_STATUS(bufid);
+	enum app_zigbee_signal app_signal = APP_ZIGBEE_SIGNAL_OTHER;
+	bool parent_link_failure = false;
+
+	switch (signal)
+	{
+	case ZB_ZDO_SIGNAL_SKIP_STARTUP:
+		LOG_DBG("Zigbee stack startup: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_SKIP_STARTUP;
+		break;
+	case ZB_BDB_SIGNAL_DEVICE_FIRST_START:
+		LOG_DBG("First device startup: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START;
+		break;
+	case ZB_BDB_SIGNAL_DEVICE_REBOOT:
+		LOG_INF("Reboot rejoin result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_DEVICE_REBOOT;
+		break;
+	case ZB_BDB_SIGNAL_TC_REJOIN_DONE:
+		LOG_INF("Trust-center rejoin result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_TC_REJOIN_DONE;
+		break;
+	case ZB_BDB_SIGNAL_STEERING:
+		LOG_INF("Network steering result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_STEERING;
+		break;
+	case ZB_ZDO_SIGNAL_LEAVE:
+		LOG_INF("Network leave result: %d", status);
+		app_signal = APP_ZIGBEE_SIGNAL_LEAVE;
+		break;
+	case ZB_COMMON_SIGNAL_CAN_SLEEP:
+		app_signal = APP_ZIGBEE_SIGNAL_CAN_SLEEP;
+		break;
+	case ZB_ZDO_SIGNAL_PRODUCTION_CONFIG_READY:
+		LOG_DBG("Production config result: %d", status);
+		break;
+	case ZB_NLME_STATUS_INDICATION:
+	{
+		zb_zdo_signal_nlme_status_indication_params_t *indication =
+			ZB_ZDO_SIGNAL_GET_PARAMS(header, zb_zdo_signal_nlme_status_indication_params_t);
+		parent_link_failure =
+			indication->nlme_status.status == ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE;
+		if (parent_link_failure)
+		{
+			LOG_WRN("Parent link failure");
+		}
+		app_signal = APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION;
+		break;
+	}
+	default:
+		LOG_INF("Unhandled signal %d. Status: %d", signal, status);
+		break;
+	}
+
 	struct app_zigbee_actions actions;
-	app_zigbee_handle_signal(&app_state, signal, status_ok, parent_link_failure, &actions);
+	app_zigbee_handle_signal(&app_state, app_signal, status == RET_OK, parent_link_failure, &actions);
 	execute_signal_actions(&actions, sensor_loop, sleepy);
+
+	/* R23 add-on 1.4.0 workaround KRKNWK-21014. Restore the configured
+	 * receiver state after commissioning or rejoin using the backend of
+	 * Nordic's ZB_TRANSCEIVER_SET_RX_ON_OFF macro.
+	 */
+	if (actions.restore_receiver)
+	{
+		zb_macll_trans_set_rx_on_off(zb_get_rx_on_when_idle());
+	}
 }

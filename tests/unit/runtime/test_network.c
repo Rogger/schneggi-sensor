@@ -9,6 +9,12 @@ static unsigned int commission_calls, last_mode, reboots, restores, sleep_calls,
 static uint32_t poll_ms;
 static bool joined, commission_ok;
 static uint8_t reboot_reason;
+static zb_zdo_app_signal_type_t raw_signal;
+static zb_ret_t raw_status;
+static zb_zdo_app_signal_hdr_t raw_header;
+static unsigned int receiver_calls;
+static bool rx_on_when_idle;
+static int receiver_state;
 
 static void sensor_callback(zb_uint8_t unused) { (void)unused; }
 static void other_alarm(zb_uint8_t unused) { (void)unused; }
@@ -72,6 +78,23 @@ zb_bool_t bdb_start_top_level_commissioning(zb_uint8_t mode)
 	return commission_ok;
 }
 void zb_sleep_now(void) { sleep_calls++; }
+zb_zdo_app_signal_type_t zb_get_app_signal(zb_bufid_t bufid, void *header)
+{
+	assert(bufid == 7);
+	*(zb_zdo_app_signal_hdr_t **)header = &raw_header;
+	return raw_signal;
+}
+int signal_status(zb_bufid_t bufid)
+{
+	assert(bufid == 7);
+	return raw_status;
+}
+zb_bool_t zb_get_rx_on_when_idle(void) { return rx_on_when_idle; }
+void zb_macll_trans_set_rx_on_off(int rx_on)
+{
+	receiver_calls++;
+	receiver_state = rx_on;
+}
 void app_ota_set_long_poll(uint32_t ms) { poll_ms = ms; poll_calls++; }
 void power_up_unused_ram(void) { restores++; }
 void app_reset_info_set_reason(uint8_t reason) { reboot_reason = reason; }
@@ -90,18 +113,27 @@ static void reset(void)
 	reboot_reason = APP_REBOOT_UNKNOWN;
 	joined = false;
 	commission_ok = true;
+	receiver_calls = 0;
+	receiver_state = -1;
+	rx_on_when_idle = false;
 }
-static void signal(enum app_zigbee_signal event, bool ok)
+static void dispatch(zb_zdo_app_signal_type_t event, bool ok, bool sleepy)
 {
-	app_network_handle_signal(event, ok, event == APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION,
-				  sensor_callback, true);
+	raw_signal = event;
+	raw_status = ok ? RET_OK : -EIO;
+	raw_header.indication.nlme_status.status = ZB_NWK_COMMAND_STATUS_PARENT_LINK_FAILURE;
+	app_network_handle_signal(7, sensor_callback, sleepy);
+}
+static void signal(zb_zdo_app_signal_type_t event, bool ok)
+{
+	dispatch(event, ok, true);
 }
 static void start(void)
 {
-	signal(APP_ZIGBEE_SIGNAL_SKIP_STARTUP, true);
+	signal(ZB_ZDO_SIGNAL_SKIP_STARTUP, true);
 	assert(commission_calls == 1 && last_mode == ZB_BDB_INITIALIZATION);
 	assert(pending_delay(sensor_callback) == 66);
-	signal(APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START, true);
+	signal(ZB_BDB_SIGNAL_DEVICE_FIRST_START, true);
 	assert(pending_delay(start_network_steering) == 66 && rejoin_state.retry_pending);
 }
 
@@ -109,20 +141,20 @@ static void test_rejoin_lifecycle(void)
 {
 	reset();
 	start();
-	for (int i = 0; i < 10; ++i) { signal(APP_ZIGBEE_SIGNAL_NLME_STATUS_INDICATION, true); }
+	for (int i = 0; i < 10; ++i) { signal(ZB_NLME_STATUS_INDICATION, true); }
 	assert(pending_delay(start_network_steering) == 66 && rejoin_state.attempt_count == 1);
 	fire(start_network_steering);
 	assert(commission_calls == 2 && last_mode == ZB_BDB_NETWORK_STEERING);
 	assert(!rejoin_state.retry_pending);
-	signal(APP_ZIGBEE_SIGNAL_STEERING, false);
+	signal(ZB_BDB_SIGNAL_STEERING, false);
 	assert(pending_delay(start_network_steering) == 131);
 	joined = true;
-	signal(APP_ZIGBEE_SIGNAL_STEERING, true);
+	signal(ZB_BDB_SIGNAL_STEERING, true);
 	assert(pending_count(start_network_steering) == 0 && !rejoin_state.procedure_started);
 	assert(pending_delay(sensor_callback) == 66);
 	assert(poll_calls == 1 && poll_ms == APP_ZIGBEE_LONG_POLL_INTERVAL_MS);
 	/* A repeated join signal replaces, rather than duplicates, sampling. */
-	signal(APP_ZIGBEE_SIGNAL_DEVICE_REBOOT, true);
+	signal(ZB_BDB_SIGNAL_DEVICE_REBOOT, true);
 	assert(pending_count(sensor_callback) == 1 && reboots == 0);
 }
 
@@ -143,7 +175,7 @@ static void test_join_reuses_the_retry_alarm_slot(void)
 	assert(alarm_schedule(other_alarm, 0, 100) == RET_OK);
 	assert(alarm_schedule(other_alarm, 1, 200) == -ENOMEM);
 	joined = true;
-	signal(APP_ZIGBEE_SIGNAL_STEERING, true);
+	signal(ZB_BDB_SIGNAL_STEERING, true);
 	assert(reboots == 0 && pending_count(start_network_steering) == 0);
 	assert(pending_count(sensor_callback) == 1 && pending_count(other_alarm) == 1);
 }
@@ -151,22 +183,22 @@ static void test_join_reuses_the_retry_alarm_slot(void)
 static void test_alarm_failures_restart_instead_of_stalling(void)
 {
 	reset();
-	signal(APP_ZIGBEE_SIGNAL_SKIP_STARTUP, true);
+	signal(ZB_ZDO_SIGNAL_SKIP_STARTUP, true);
 	schedule_failure = start_network_steering;
-	signal(APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START, true);
+	signal(ZB_BDB_SIGNAL_DEVICE_FIRST_START, true);
 	assert(reboots == 1 && !rejoin_state.retry_pending);
 	assert(reboot_reason == APP_REBOOT_REJOIN_ALARM);
 
 	reset();
 	schedule_failure = sensor_callback;
-	signal(APP_ZIGBEE_SIGNAL_SKIP_STARTUP, true);
+	signal(ZB_ZDO_SIGNAL_SKIP_STARTUP, true);
 	assert(reboots == 1 && reboot_reason == APP_REBOOT_SENSOR_ALARM);
 
 	reset();
 	start();
 	schedule_failure = sensor_callback;
 	joined = true;
-	signal(APP_ZIGBEE_SIGNAL_STEERING, true);
+	signal(ZB_BDB_SIGNAL_STEERING, true);
 	assert(reboots == 1 && pending_count(sensor_callback) == 0);
 	assert(reboot_reason == APP_REBOOT_SENSOR_ALARM);
 
@@ -174,29 +206,29 @@ static void test_alarm_failures_restart_instead_of_stalling(void)
 	start();
 	fire(start_network_steering);
 	schedule_failure = start_network_steering;
-	signal(APP_ZIGBEE_SIGNAL_STEERING, false);
+	signal(ZB_BDB_SIGNAL_STEERING, false);
 	assert(reboots == 1 && !rejoin_state.retry_pending);
 
 	reset();
 	cancel_failure = sensor_callback;
 	joined = true;
-	signal(APP_ZIGBEE_SIGNAL_DEVICE_REBOOT, true);
+	signal(ZB_BDB_SIGNAL_DEVICE_REBOOT, true);
 	assert(reboots == 1 && pending_count(sensor_callback) == 0);
 }
 
 static void test_startup_failures_restart(void)
 {
 	reset();
-	signal(APP_ZIGBEE_SIGNAL_SKIP_STARTUP, false);
+	signal(ZB_ZDO_SIGNAL_SKIP_STARTUP, false);
 	assert(reboots == 1 && commission_calls == 0);
 	assert(reboot_reason == APP_REBOOT_ZIGBEE_STARTUP);
 	reset();
-	signal(APP_ZIGBEE_SIGNAL_DEVICE_FIRST_START, false);
+	signal(ZB_BDB_SIGNAL_DEVICE_FIRST_START, false);
 	assert(reboots == 1 && commission_calls == 0);
 	assert(reboot_reason == APP_REBOOT_ZIGBEE_STARTUP);
 	reset();
 	commission_ok = false;
-	signal(APP_ZIGBEE_SIGNAL_SKIP_STARTUP, true);
+	signal(ZB_ZDO_SIGNAL_SKIP_STARTUP, true);
 	assert(reboots == 1 && commission_calls == 1);
 	assert(reboot_reason == APP_REBOOT_ZIGBEE_STARTUP);
 }
@@ -207,7 +239,7 @@ static void test_failed_cancel_is_guarded_when_callback_fires(void)
 	start();
 	cancel_failure = start_network_steering;
 	joined = true;
-	signal(APP_ZIGBEE_SIGNAL_STEERING, true);
+	signal(ZB_BDB_SIGNAL_STEERING, true);
 	assert(rejoin_state.stop_requested && reboots == 0);
 	assert(pending_count(start_network_steering) == 1);
 	fire(start_network_steering);
@@ -222,9 +254,9 @@ static void test_sampling_survives_failed_reboot_join(void)
 	 * measurement alarm started with the stack must keep running.
 	 */
 	reset();
-	signal(APP_ZIGBEE_SIGNAL_SKIP_STARTUP, true);
+	signal(ZB_ZDO_SIGNAL_SKIP_STARTUP, true);
 	joined = true;
-	signal(APP_ZIGBEE_SIGNAL_DEVICE_REBOOT, false);
+	signal(ZB_BDB_SIGNAL_DEVICE_REBOOT, false);
 	assert(pending_count(start_network_steering) == 0);
 	assert(pending_delay(sensor_callback) == 66 && reboots == 0);
 }
@@ -232,10 +264,55 @@ static void test_sampling_survives_failed_reboot_join(void)
 static void test_sleep_respects_power_profile(void)
 {
 	reset();
-	app_network_handle_signal(APP_ZIGBEE_SIGNAL_CAN_SLEEP, true, false, sensor_callback, false);
+	dispatch(ZB_COMMON_SIGNAL_CAN_SLEEP, true, false);
 	assert(sleep_calls == 0);
-	app_network_handle_signal(APP_ZIGBEE_SIGNAL_CAN_SLEEP, true, false, sensor_callback, true);
+	dispatch(ZB_COMMON_SIGNAL_CAN_SLEEP, true, true);
 	assert(sleep_calls == 1);
+	assert(receiver_calls == 0);
+}
+
+static void test_trust_center_rejoin(void)
+{
+	reset();
+	start();
+	fire(start_network_steering);
+	signal(ZB_BDB_SIGNAL_TC_REJOIN_DONE, false);
+	assert(reboots == 0 && rejoin_state.retry_pending);
+	assert(pending_delay(start_network_steering) == 131);
+
+	joined = true;
+	signal(ZB_BDB_SIGNAL_TC_REJOIN_DONE, true);
+	assert(!rejoin_state.retry_pending && !rejoin_state.procedure_started);
+	assert(pending_count(start_network_steering) == 0);
+	assert(pending_delay(sensor_callback) == 66);
+	assert(poll_calls == 1 && poll_ms == APP_ZIGBEE_LONG_POLL_INTERVAL_MS);
+
+	/* A boot-time rejoin can emit both signals. Keep one measurement alarm. */
+	signal(ZB_BDB_SIGNAL_DEVICE_REBOOT, true);
+	signal(ZB_BDB_SIGNAL_TC_REJOIN_DONE, true);
+	assert(reboots == 0 && pending_count(sensor_callback) == 1);
+}
+
+static void test_commissioning_restores_configured_receiver(void)
+{
+	const zb_zdo_app_signal_type_t events[] = {
+		ZB_BDB_SIGNAL_DEVICE_REBOOT, ZB_BDB_SIGNAL_TC_REJOIN_DONE, ZB_BDB_SIGNAL_STEERING,
+	};
+	for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); ++i)
+	{
+		for (int rx_on = 0; rx_on <= 1; ++rx_on)
+		{
+			reset();
+			rx_on_when_idle = rx_on;
+			dispatch(events[i], false, !rx_on);
+			assert(receiver_calls == 1 && receiver_state == rx_on);
+			dispatch(events[i], true, !rx_on);
+			assert(receiver_calls == 2 && receiver_state == rx_on);
+		}
+	}
+
+	dispatch(ZB_ZDO_SIGNAL_LEAVE, true, false);
+	assert(receiver_calls == 2);
 }
 
 int main(void)
@@ -248,5 +325,7 @@ int main(void)
 	test_failed_cancel_is_guarded_when_callback_fires();
 	test_sampling_survives_failed_reboot_join();
 	test_sleep_respects_power_profile();
+	test_trust_center_rejoin();
+	test_commissioning_restores_configured_receiver();
 	return 0;
 }

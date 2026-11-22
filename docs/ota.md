@@ -1,13 +1,13 @@
 # Firmware updates through Home Assistant ZHA
 
-Schneggi uses NCS 2.9.2's Zigbee FOTA client on endpoint 5, cluster `0x0019`,
+Schneggi uses Zigbee add-on 1.4.0's FOTA client with NCS 3.4.1 on endpoint 5, cluster `0x0019`,
 and MCUboot with ECDSA P-256 signatures and swap using move. Endpoint 1 retains
 the sensor clusters. Home Assistant supplies the image and starts installation
 through its firmware update entity. No custom ZHA quirk is required by this design.
 
 ## One-time installation and signing key
 
-Existing firmware has no OTA bootloader. Install the first OTA-capable
+Firmware predating OTA support has no OTA bootloader. Install the first OTA-capable
 `merged.hex` using the wired programmer. Application-only HEX/BIN files cannot
 perform this migration. Back up device flash before migration if retaining the
 existing pairing is important; do not use `erase` or `erase-and-flash`.
@@ -44,8 +44,9 @@ require a private key. Use a separate build directory when changing signing keys
 ## Build an update
 
 Increase `CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION` in the desired profile's `prj_*.conf`,
-for example from `1.0.0` to `1.0.1`. Keep debug and production versions aligned
-within each hardware variant; CO2 and non-CO2 have separate version histories.
+for example from `2.1.0` to `2.1.1`. Keep all four profiles on the same version.
+From 2.1.0, CO2 and non-CO2 share one version; earlier releases versioned them
+separately (CO2 up to 2.0.8, non-CO2 up to 1.0.9).
 Rebuild with the original signing key:
 
 ```sh
@@ -71,9 +72,12 @@ MCUboot verifies the cryptographic signature on-device before booting a candidat
 The index includes a checksum for ZHA's file-integrity validation.
 
 Versions use `major.minor.patch`, encoded as `(major << 24) | (minor << 16) | patch`.
-Major and minor are 8-bit fields; patch is 16-bit. Do not use a `+build` suffix:
-Nordic's Zigbee version ignores that suffix. Equal and older versions are refused
-by the OTA client. To distribute a fix that restores earlier behavior, release
+Major and minor range from 0 to 255. Patch ranges from 0 to 65535.
+Do not use a `+build` suffix. The build uses one encoder for the OTA header
+and the endpoint's current-version attribute. Packaging checks the OTA header
+against the signed application.
+The OTA client refuses equal and older versions.
+To distribute a fix that restores earlier behavior, release
 that code with a new, higher version. Automatic MCUboot trial rollback is separate
 from this OTA version policy.
 
@@ -91,7 +95,7 @@ release should use an assigned manufacturer ID. The index also matches the
 or moving between profiles requires a deliberate migration, normally wired.
 
 Starting with 1.0.2, OTA files and indexes omit the optional minimum/maximum
-hardware-version range. NCS 2.9.2's periodic Query Next Image request omits its
+hardware-version range. The original NCS 2.9.2 periodic Query Next Image request omitted its
 hardware version, and zigpy rejects a restricted image when that field is absent.
 Removing only the range from the index is insufficient: zigpy also checks the
 downloaded OTA header. Compatibility is enforced by manufacturer and image type;
@@ -190,6 +194,12 @@ publishes downloadable assets, including a ZIP for the local ZHA provider; it do
 not change Home Assistant remotely.
 
 ## Recovery, flash limits, and hardware acceptance
+
+The NCS 3.4.1 / Zigbee add-on 1.4.0 migration is covered by host tests and firmware
+builds. The bench results below apply to the earlier stack. Validate the upgraded
+stack on one device of each variant before rollout, especially retained pairing,
+NVRAM migration, rollback, OTA resume, and battery sleep current. See
+[SDK migration notes](sdk-upgrade.md).
 
 Bench test on 2026-09-28: the USB-powered debug CO2 sensor successfully updated
 from 1.0.0 to 1.0.1 through ZHA after a manual Image Notify. The installed version

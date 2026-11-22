@@ -8,14 +8,19 @@ cmake_minimum_required(VERSION 3.20.0)
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
-if(NOT CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
-  message(FATAL_ERROR "OTA version must be major.minor.patch without a build suffix")
-endif()
-if(CMAKE_MATCH_1 GREATER 255 OR CMAKE_MATCH_2 GREATER 255 OR CMAKE_MATCH_3 GREATER 65535)
-  message(FATAL_ERROR "OTA version exceeds the Zigbee version field widths")
-endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/ota_image.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_ota.py")
+execute_process(
+  COMMAND ${PYTHON_EXECUTABLE} -B "${CMAKE_CURRENT_SOURCE_DIR}/scripts/ota_image.py"
+    version "${CONFIG_MCUBOOT_IMGTOOL_SIGN_VERSION}"
+  OUTPUT_VARIABLE SCHNEGGI_OTA_FILE_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY
+)
 
 project("Schneggi Sensor")
+target_compile_definitions(app PRIVATE SCHNEGGI_OTA_FILE_VERSION=${SCHNEGGI_OTA_FILE_VERSION})
 
 target_sources(app PRIVATE
 	src/app_environment.c
@@ -36,6 +41,7 @@ target_sources(app PRIVATE
 	src/main.c
 	src/rejoin_logic.c
 	src/zigbee_signal_logic.c
+	src/zboss_mem_globals.c
 	src/zcl/zb_zcl_concentration_measurement.c
 )
 
@@ -43,4 +49,10 @@ target_sources_ifdef(CONFIG_ADC app PRIVATE src/app_battery.c)
 target_sources_ifdef(CONFIG_SCD4X app PRIVATE src/app_scd4x.c)
 
 target_include_directories(app PRIVATE include)
+
+# Nordic's prebuilt library has plain ELF weak defaults for these configurable
+# globals. Resolve Schneggi's strong medium-sized tables outside LTO as well.
+if(CONFIG_LTO)
+  set_source_files_properties(src/zboss_mem_globals.c PROPERTIES COMPILE_OPTIONS -fno-lto)
+endif()
 # NORDIC SDK APP END
