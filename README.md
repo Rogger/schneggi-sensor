@@ -7,9 +7,7 @@
 A tiny Zigbee sensor for [Home Assistant](https://www.home-assistant.io/) that measures temperature, humidity and, optionally, CO2.
 It runs on an nRF52840, updates over the air through ZHA, and lasts a long time on a small battery.
 
-| <img src="docs/img/base.png" alt="Base board" height="200"> | <img src="docs/img/co2.png" alt="CO2 add-on board" height="200"> | <img src="docs/img/case.png" alt="Case" height="200"> |
-| :---: | :---: | :---: |
-| Base board | CO2 add-on board | 3D-printed case |
+<p align="center"><img src="docs/img/exploded.png" alt="Exploded view: lid, CO2 board on M2 standoffs with I2C cable, base board, bottom shell" width="520"></p>
 
 ## At a glance
 
@@ -79,7 +77,9 @@ See [build.md](docs/build.md) for workspace options, overrides and test coverage
 
 The sensor PCBs were designed in KiCad 7 (the flash adapter in KiCad 9) and manufactured and assembled by JLCPCB. Schematics, layouts and case files are in [`hardware/`](hardware).
 
-<p align="center"><img src="docs/img/exploded.png" alt="Exploded view: lid, CO2 board, base board, bottom shell" width="480"></p>
+| <img src="docs/img/base.png" alt="Base board" height="200"> | <img src="docs/img/co2.png" alt="CO2 add-on board" height="200"> | <img src="docs/img/case.png" alt="Case" height="200"> |
+| :---: | :---: | :---: |
+| Base board | CO2 add-on board | 3D-printed case |
 
 The renders are generated from the KiCad boards and case STLs with `uv run scripts/render_images.py`.
 

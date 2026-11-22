@@ -41,6 +41,20 @@ STANDOFF_Y = 5.0
 BOARD_Z_SHIFT = -30.0
 LID_COLOR = [0.16, 0.16, 0.17]
 SHELL_COLOR = [0.50, 0.50, 0.52]
+BOARD_THICKNESS = 1.6
+
+# Shared board layout (board-local mm, origin at the KiCad grid origin).
+MOUNTING_HOLES = [(2.2, 2.2), (32.8, 2.2), (2.2, 27.8), (32.8, 27.8)]
+STANDOFF_LENGTH = 10.0
+STANDOFF_ACROSS_FLATS = 3.2  # M2 hex standoff
+STANDOFF_COLOR = [0.80, 0.64, 0.32]  # brass
+# CN2: JST SH SM04B-SRSS-TB, side entry, socket facing the board edge (y = 0).
+I2C_X = 9.8
+I2C_FACE_Y = 0.5
+I2C_PIN_HEIGHT = 3.0  # above the board surface
+I2C_WIRES = [(-1.5, [0.08, 0.08, 0.08]), (-0.5, [0.80, 0.12, 0.10]),
+             (0.5, [0.12, 0.30, 0.85]), (1.5, [0.95, 0.80, 0.10])]
+PLUG_COLOR = [0.93, 0.91, 0.85]
 LABEL_GREY = (136, 136, 136, 255)
 FONT_CANDIDATES = [
     '/usr/share/fonts/noto/NotoSans-Medium.ttf',
@@ -54,8 +68,9 @@ def run(*cmd):
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def trim(src, dst, size):
-    run('magick', str(src), '-trim', '+repage', '-resize', size, '-strip',
+def trim(src, dst, size, border=0):
+    run('magick', str(src), '-trim', '+repage', '-resize', size,
+        '-bordercolor', 'none', '-border', str(border), '-strip',
         '-define', 'png:compression-level=9', str(dst))
 
 
@@ -120,6 +135,11 @@ class Stage:
         mesh = pyrender.Mesh.from_trimesh(trimesh.load(path), material=material, smooth=False)
         self.scene.add(mesh, pose=pose(dy=y))
 
+    def add_mesh(self, mesh, rgb, metallic=0.0, roughness=0.6):
+        material = pyrender.MetallicRoughnessMaterial(
+            baseColorFactor=list(rgb) + [1], metallicFactor=metallic, roughnessFactor=roughness)
+        self.scene.add(pyrender.Mesh.from_trimesh(mesh, material=material, smooth=False))
+
     def add_board(self, glb, y):
         # Merge the thousands of KiCad part meshes by colour to keep rendering fast.
         groups = {}
@@ -161,18 +181,92 @@ class Stage:
         return Image.fromarray(color), project
 
 
-def label(image, project, anchors, width):
+def board_point(x, y_local, height):
+    """Board-local (x, y) at a height in the case frame."""
+    return np.array([x, height, y_local + BOARD_Z_SHIFT])
+
+
+def tube(points, radius, sections=12):
+    """Round wire along a polyline: cylinders between points, spheres at joints."""
+    parts = []
+    for a, b in zip(points[:-1], points[1:]):
+        if np.linalg.norm(b - a) > 1e-6:
+            parts.append(trimesh.creation.cylinder(radius=radius, segment=[a, b], sections=sections))
+    for p in points:
+        sphere = trimesh.creation.icosphere(subdivisions=1, radius=radius)
+        sphere.apply_translation(p)
+        parts.append(sphere)
+    return trimesh.util.concatenate(parts)
+
+
+def standoffs(bottom_y):
+    radius = STANDOFF_ACROSS_FLATS / np.sqrt(3)
+    meshes = []
+    for x, y in MOUNTING_HOLES:
+        a = board_point(x, y, bottom_y)
+        meshes.append(trimesh.creation.cylinder(
+            radius=radius, segment=[a, a + [0, STANDOFF_LENGTH, 0]], sections=6))
+    return trimesh.util.concatenate(meshes)
+
+
+def i2c_cable(base_y, co2_y, plug_gap=1.2, bend=2.5):
+    """JST SH plugs in front of both I2C sockets, joined by four wires that loop
+    around the board edge."""
+    plug_depth, plug_width, plug_height = 4.0, 6.0, 2.6
+    plugs, wires = [], {tuple(c): [] for _, c in I2C_WIRES}
+    front_y = I2C_FACE_Y - plug_gap               # plug face, board-local y
+    back_y = front_y - plug_depth                 # wire exit, board-local y
+    for top in (base_y, co2_y):
+        h = top + BOARD_THICKNESS + I2C_PIN_HEIGHT
+        box = trimesh.creation.box([plug_width, plug_height, plug_depth])
+        box.apply_translation(board_point(I2C_X, (front_y + back_y) / 2, h))
+        plugs.append(box)
+    lo = base_y + BOARD_THICKNESS + I2C_PIN_HEIGHT
+    hi = co2_y + BOARD_THICKNESS + I2C_PIN_HEIGHT
+    loop_z = back_y - 3.0                          # outermost wire run, board-local y
+    for dx, color in I2C_WIRES:
+        x = I2C_X + dx
+        # Fan the wires a little so the inner ones nest inside the outer bends.
+        inset = (dx + 1.5) * 0.35
+        z_out = loop_z + inset
+        # Out from the plug, quarter bend up, straight run, quarter bend back in.
+        path = [board_point(x, back_y, lo)]
+        c_low = board_point(x, z_out + bend, lo + bend)
+        c_high = board_point(x, z_out + bend, hi - bend)
+        path += [c_low + bend * np.array([0, -np.cos(a), -np.sin(a)])
+                 for a in np.radians(np.linspace(0, 90, 10))]
+        path += [c_high + bend * np.array([0, np.sin(a), -np.cos(a)])
+                 for a in np.radians(np.linspace(0, 90, 10))]
+        path.append(board_point(x, back_y, hi))
+        wires[tuple(color)].append(tube(np.array(path), 0.4))
+    return trimesh.util.concatenate(plugs), wires, board_point(I2C_X - 1.5, loop_z, (lo + hi) / 2)
+
+
+def label(image, project, anchors, width, left_anchors=None):
     font_path = next((f for f in FONT_CANDIDATES if Path(f).exists()), None)
     font = ImageFont.truetype(font_path, 46) if font_path else ImageFont.load_default()
-    canvas = Image.new('RGBA', (width + 520, image.height), (0, 0, 0, 0))
-    canvas.paste(image, (0, 0))
+    left_anchors = left_anchors or {}
+    left_pad = 420 if left_anchors else 0
+    canvas = Image.new('RGBA', (left_pad + width + 520, image.height), (0, 0, 0, 0))
+    canvas.paste(image, (left_pad, 0))
     draw = ImageDraw.Draw(canvas)
-    text_x = width + 40
+
+    def dot(x, y):
+        draw.ellipse([x - 10, y - 10, x + 10, y + 10], fill=LABEL_GREY)
+
+    text_x = left_pad + width + 40
     for text, point in anchors.items():
         x, y = project(np.array(point, float))
+        x += left_pad
         draw.line([(x + 15, y), (text_x - 15, y)], fill=LABEL_GREY, width=4)
-        draw.ellipse([x + 5, y - 10, x + 25, y + 10], fill=LABEL_GREY)
+        dot(x + 15, y)
         draw.text((text_x, y), text, font=font, fill=LABEL_GREY, anchor='lm')
+    for text, point in left_anchors.items():
+        x, y = project(np.array(point, float))
+        x += left_pad
+        draw.line([(x - 15, y), (left_pad - 25, y)], fill=LABEL_GREY, width=4)
+        dot(x - 15, y)
+        draw.text((left_pad - 40, y), text, font=font, fill=LABEL_GREY, anchor='rm')
     return canvas
 
 
@@ -188,23 +282,34 @@ def render_case(tmp):
 
 
 def render_exploded(tmp):
-    """Exploded stack: bottom shell, base board, CO2 board, lid."""
-    lift = {'base': 42, 'co2': 72, 'lid': 88}
+    """Exploded stack: bottom shell, base board, standoffs and I2C cable,
+    CO2 board, lid."""
+    lift = {'base': 42, 'co2': 76, 'lid': 92}
+    base_y = STANDOFF_Y + lift['base']
+    co2_y = STANDOFF_Y + lift['co2']
+    standoff_y = (base_y + BOARD_THICKNESS + co2_y - STANDOFF_LENGTH) / 2
     stage = Stage()
     stage.add_stl(CASE_BOTTOM, 0, SHELL_COLOR)
-    stage.add_board(export_glb(tmp, 'base'), STANDOFF_Y + lift['base'])
-    stage.add_board(export_glb(tmp, 'co2'), STANDOFF_Y + lift['co2'])
+    stage.add_board(export_glb(tmp, 'base'), base_y)
+    stage.add_mesh(standoffs(standoff_y), STANDOFF_COLOR, metallic=0.6, roughness=0.35)
+    plugs, wires, cable_anchor = i2c_cable(base_y, co2_y)
+    stage.add_mesh(plugs, PLUG_COLOR)
+    for color, meshes in wires.items():
+        stage.add_mesh(trimesh.util.concatenate(meshes), color, roughness=0.45)
+    stage.add_board(export_glb(tmp, 'co2'), co2_y)
     stage.add_stl(CASE_TOP, lift['lid'], LID_COLOR)
-    size = (1300, 2100)
+    size = (1300, 2200)
     image, project = stage.render(np.array([20, (35 + lift['lid']) / 2, -15]), size)
+    right_hole = board_point(*MOUNTING_HOLES[3], standoff_y + STANDOFF_LENGTH / 2)
     labelled = label(image, project, {
         'Lid': (45, lift['lid'] + 28, -20),
-        'CO2 board (optional)': (35, STANDOFF_Y + lift['co2'] + 1, -15),
-        'Base board': (38, STANDOFF_Y + lift['base'] + 1, -15),
+        'CO2 board (optional)': (35, co2_y + 1, -15),
+        'M2 standoffs': right_hole + [STANDOFF_ACROSS_FLATS / 2, 0, 0],
+        'Base board': (38, base_y + 1, -15),
         'Bottom shell': (45, 12, -20),
-    }, size[0])
+    }, size[0], left_anchors={'I2C cable': cable_anchor})
     labelled.save(tmp / 'exploded_raw.png')
-    trim(tmp / 'exploded_raw.png', OUT / 'exploded.png', '900x')
+    trim(tmp / 'exploded_raw.png', OUT / 'exploded.png', '1000x', border=12)
 
 
 def main():
