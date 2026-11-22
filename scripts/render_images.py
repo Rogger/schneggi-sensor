@@ -39,8 +39,8 @@ CASE_BOTTOM = ROOT / 'hardware/case/bottom.stl'
 # the board spanning z 0..30 from the grid origin.
 STANDOFF_Y = 5.0
 BOARD_Z_SHIFT = -30.0
-LID_COLOR = [0.96, 0.78, 0.25]
-SHELL_COLOR = [0.88, 0.88, 0.86]
+LID_COLOR = [0.16, 0.16, 0.17]
+SHELL_COLOR = [0.50, 0.50, 0.52]
 LABEL_GREY = (136, 136, 136, 255)
 FONT_CANDIDATES = [
     '/usr/share/fonts/noto/NotoSans-Medium.ttf',
