@@ -103,7 +103,7 @@ behavior, network recovery over the radio, and sleep current still require hardw
 
 Version tags also run the [GitHub release workflow](releases.md), which publishes
 clearly labeled public-development-key firmware, a ready-to-copy ZHA OTA ZIP,
-and checksums after validation. Releases preserve the separate CO2/non-CO2 firmware versions.
+and checksums after validation. From 2.1.0, CO2 and non-CO2 firmware share one version that matches the tag.
 
 `make clean` accepts only `build` or `build_*` directories inside this project.
 
